@@ -1,0 +1,6 @@
+{
+  "name": "Vesper — Comunicação em Tempo Real",
+  "description": "Plataforma de comunicação em tempo real com salas de chat, voz, vídeo e compartilhamento de tela em alta definição.",
+  "requestFramePermissions": ["microphone", "camera", "display-capture"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
