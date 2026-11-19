@@ -9,6 +9,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
+import { useI18n } from '../i18n/I18nContext';
 
 export interface ScreenFeed {
   uid: string;
@@ -27,6 +28,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
   feeds,
   onStopLocalShare,
 }) => {
+  const { t } = useI18n();
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [controlsHidden, setControlsHidden] = useState(false);
@@ -71,7 +73,6 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
     };
   }, [isFullscreen, scheduleIdleHide]);
 
-  // Sync native Fullscreen API changes and Escape key
   useEffect(() => {
     const onFullscreenChange = () => {
       const nativeActive = Boolean(document.fullscreenElement);
@@ -107,7 +108,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
       try {
         await el.requestFullscreen();
       } catch {
-        // Graceful fallback: CSS fixed viewport fullscreen remains active!
+        // Fallback: CSS fixed viewport fullscreen remains active
       }
     }
   };
@@ -143,7 +144,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
           : 'relative rounded-2xl border border-white/10 bg-[#0B0C10] overflow-hidden shadow-2xl flex flex-col'
       }
     >
-      {/* Top Bar (inline mode or visible fullscreen overlay) */}
+      {/* Top Bar */}
       <div
         className={
           isFullscreen
@@ -158,23 +159,13 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
             <MonitorUp className="w-4 h-4" />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-medium text-white truncate">
-              <span>
-                {activeFeed.isLocal
-                  ? 'Você está compartilhando sua tela'
-                  : `${activeFeed.displayName} está transmitindo`}
-              </span>
+            <div className="text-sm font-medium text-white truncate">
+              {activeFeed.isLocal ? t.localYou : activeFeed.displayName} · {t.liveScreenTitle}
             </div>
-            <div className="flex items-center gap-2 text-xs text-zinc-400">
-              <span>Transmissão ao vivo</span>
-              <span aria-hidden="true">·</span>
-              <span>
-                {activeFeed.isLocal
-                  ? activeFeed.hasSystemAudio
-                    ? 'Áudio do sistema ativo'
-                    : 'Somente vídeo'
-                  : 'Proporção original preservada'}
-              </span>
+            <div className="text-xs text-zinc-400 truncate">
+              {activeFeed.isLocal && activeFeed.hasSystemAudio
+                ? t.withSystemAudio
+                : t.escHint}
             </div>
           </div>
         </div>
@@ -189,11 +180,11 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
                   onClick={() => setSelectedUid(feed.uid)}
                   className={`px-2.5 py-1 text-xs rounded-md transition-colors whitespace-nowrap ${
                     feed.uid === activeFeed.uid
-                      ? 'bg-indigo-500 text-white'
+                      ? 'bg-blue-600 text-white'
                       : 'text-zinc-300 hover:bg-white/10'
                   }`}
                 >
-                  {feed.isLocal ? 'Sua tela' : feed.displayName}
+                  {feed.isLocal ? t.localYou : feed.displayName}
                 </button>
               ))}
             </div>
@@ -203,10 +194,10 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
             <button
               type="button"
               onClick={enterFullscreen}
-              className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-semibold tracking-wide flex items-center gap-2 transition-colors shadow-lg shadow-indigo-500/25 whitespace-nowrap shrink-0"
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold tracking-wide flex items-center gap-2 transition-colors shadow-lg shadow-blue-500/25 whitespace-nowrap shrink-0"
             >
               <Maximize2 className="w-3.5 h-3.5" />
-              TELA CHEIA
+              {t.fullscreenBtn}
             </button>
           )}
 
@@ -217,13 +208,13 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
               className="px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
             >
               <MonitorOff className="w-3.5 h-3.5" />
-              Parar
+              {t.stopShare}
             </button>
           )}
         </div>
       </div>
 
-      {/* Video Stage — Preserves Original Aspect Ratio Without Cropping or Distortion */}
+      {/* Video Stage — Preserves Original Aspect Ratio */}
       <div
         className={
           isFullscreen
@@ -256,7 +247,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
                 className="px-3 py-2 rounded-xl bg-white/8 hover:bg-white/15 text-zinc-200 text-xs font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap"
               >
                 {viewerMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
-                {viewerMuted ? 'Ativar áudio' : 'Silenciar'}
+                {viewerMuted ? t.unmuteMic : t.muteMic}
               </button>
             )}
 
@@ -266,7 +257,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
               className="px-3 py-2 rounded-xl bg-white/8 hover:bg-white/15 text-zinc-200 text-xs font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap"
             >
               <EyeOff className="w-4 h-4" />
-              Ocultar controles
+              {t.hideControlsBtn}
             </button>
 
             {activeFeed.isLocal && (
@@ -279,7 +270,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
                 className="px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-200 text-xs font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap"
               >
                 <MonitorOff className="w-4 h-4" />
-                Parar transmissão
+                {t.stopShare}
               </button>
             )}
 
@@ -289,7 +280,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
               className="px-4 py-2 rounded-xl bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap"
             >
               <Minimize2 className="w-4 h-4" />
-              Sair da Tela Cheia (ESC)
+              {t.exitFullscreenBtn} (ESC)
             </button>
           </div>
 
@@ -297,7 +288,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
             <button
               type="button"
               onClick={() => setControlsHidden(false)}
-              title="Mostrar controles"
+              title={t.showControlsBtn}
               className="fixed bottom-4 right-4 z-30 p-2.5 rounded-xl bg-black/50 hover:bg-black/80 border border-white/10 text-zinc-300 backdrop-blur-md transition-opacity opacity-50 hover:opacity-100"
             >
               <Eye className="w-4 h-4" />

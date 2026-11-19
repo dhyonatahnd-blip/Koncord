@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { ChannelDoc, UserPublic, VoicePeer } from '../types';
 import { RemoteMediaStreams } from '../hooks/useWebRTC';
+import { useI18n } from '../i18n/I18nContext';
 import { Avatar } from './Avatar';
 import { ScreenFeed, ScreenShareStage } from './ScreenShareStage';
 
@@ -71,6 +72,7 @@ interface VoiceVideoRoomProps {
   channel: ChannelDoc;
   currentUser: UserPublic;
   isJoined: boolean;
+  livekitActive?: boolean;
   peers: Record<string, VoicePeer>;
   rosterPeers: VoicePeer[];
   remoteMedia: Record<string, RemoteMediaStreams>;
@@ -98,6 +100,7 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
   channel,
   currentUser,
   isJoined,
+  livekitActive = false,
   peers,
   rosterPeers,
   remoteMedia,
@@ -120,7 +123,8 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
   onSetPeerVolume,
   onClearError,
 }) => {
-  // Collect all active screen shares (local + remote)
+  const { t } = useI18n();
+
   const screenFeeds: ScreenFeed[] = [];
   if (screenSharing && localScreenStream) {
     screenFeeds.push({
@@ -136,7 +140,7 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
       const peerInfo = peers[peerUid];
       screenFeeds.push({
         uid: peerUid,
-        displayName: peerInfo?.displayName || 'Participante',
+        displayName: peerInfo?.displayName || t.memberRole,
         stream: media.screenStream,
         isLocal: false,
       });
@@ -149,19 +153,21 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
         <div className="max-w-md w-full rounded-2xl border border-white/10 glass-elevated p-8 shadow-2xl">
-          <div className="w-14 h-14 rounded-2xl bg-indigo-500/15 border border-indigo-400/30 flex items-center justify-center text-indigo-400 mx-auto mb-5">
+          <div className="w-14 h-14 rounded-2xl bg-blue-500/15 border border-blue-400/30 flex items-center justify-center text-blue-400 mx-auto mb-5">
             {channel.type === 'video' ? <Camera className="w-7 h-7" /> : <Volume2 className="w-7 h-7" />}
           </div>
           <h2 className="font-display text-xl font-semibold text-white mb-2">{channel.name}</h2>
           <p className="text-sm text-zinc-400 leading-relaxed mb-6">
-            {channel.topic || 'Conecte-se com áudio, vídeo e compartilhamento de tela em tempo real.'}
+            {channel.topic || (channel.type === 'video' ? t.videoRoomTitle : t.voiceRoomTitle)}
           </p>
 
           {rosterPeers.length > 0 && (
             <div className="mb-6 rounded-xl bg-white/[0.03] border border-white/8 p-3.5 text-left">
               <div className="flex items-center gap-2 text-xs text-zinc-400 mb-2.5">
                 <Users className="w-3.5 h-3.5" />
-                <span>{rosterPeers.length} participante(s) na sala agora</span>
+                <span>
+                  {rosterPeers.length} {t.participantsInRoom}
+                </span>
               </div>
               <div className="flex flex-wrap gap-2">
                 {rosterPeers.map((p) => (
@@ -181,9 +187,9 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
             <button
               type="button"
               onClick={onJoin}
-              className="w-full py-3 px-5 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-semibold transition-colors shadow-lg shadow-indigo-500/25"
+              className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-sm font-semibold transition-colors shadow-lg shadow-blue-500/25"
             >
-              Entrar na sala {channel.type === 'video' ? 'de Vídeo' : 'de Voz'}
+              {t.joinRoomBtn}
             </button>
             <button
               type="button"
@@ -191,7 +197,7 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
               className="w-full py-2.5 px-5 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-zinc-100 text-xs font-medium flex items-center justify-center gap-2 transition-colors"
             >
               <MonitorUp className="w-4 h-4 text-sky-400" />
-              Entrar e Compartilhar Tela
+              {t.joinAndShareBtn}
             </button>
           </div>
         </div>
@@ -201,7 +207,6 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[#0A0B0E]">
-      {/* Hidden Remote Audio Players with Individual Volume */}
       {peerList.map((peer) => (
         <RemoteAudioPlayer
           key={`audio-${peer.uid}`}
@@ -210,7 +215,6 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
         />
       ))}
 
-      {/* Main Stage Scrollable Container */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
         {mediaError && (
           <div className="rounded-xl bg-amber-500/10 border border-amber-500/25 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-200">
@@ -224,7 +228,7 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
                   className="px-3 py-1.5 rounded-lg bg-amber-400 text-zinc-950 font-semibold flex items-center gap-1.5 hover:bg-amber-300 transition-colors"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  Abrir em nova aba
+                  {t.openInNewTab}
                 </a>
               )}
               <button
@@ -232,18 +236,16 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
                 onClick={onClearError}
                 className="text-amber-300 hover:text-white font-medium shrink-0 px-2 py-1"
               >
-                Dispensar
+                {t.closeBtn}
               </button>
             </div>
           </div>
         )}
 
-        {/* Priority Screen Share Stage */}
         {screenFeeds.length > 0 && (
           <ScreenShareStage feeds={screenFeeds} onStopLocalShare={onStopScreenShare} />
         )}
 
-        {/* Participant Video & Voice Cards Grid */}
         <div
           className={`grid gap-4 ${
             peerList.length === 0
@@ -253,7 +255,7 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
               : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3'
           }`}
         >
-          {/* Local Participant Card */}
+          {/* Local Card */}
           <div
             className={`relative rounded-2xl border bg-[#12141A] overflow-hidden aspect-video flex flex-col items-center justify-center transition-all ${
               speakingUids[currentUser.uid]
@@ -272,17 +274,15 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
                   speaking={Boolean(speakingUids[currentUser.uid])}
                 />
                 <span className="text-xs text-zinc-400">
-                  {micMuted ? 'Microfone desativado' : speakingUids[currentUser.uid] ? 'Falando...' : 'Conectado'}
+                  {micMuted ? t.micOff : speakingUids[currentUser.uid] ? t.speakingNow : t.connectedInRoom}
                 </span>
               </div>
             )}
 
             <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-black/55 backdrop-blur-md border border-white/10">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-xs font-medium text-white truncate">
-                  {currentUser.displayName} (Você)
-                </span>
-              </div>
+              <span className="text-xs font-medium text-white truncate">
+                {currentUser.displayName} ({t.localYou})
+              </span>
               <div className="flex items-center gap-1.5 shrink-0">
                 {micMuted ? (
                   <MicOff className="w-3.5 h-3.5 text-rose-400" />
@@ -323,7 +323,7 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
                       speaking={isSpeaking}
                     />
                     <span className="text-xs text-zinc-400">
-                      {peer.micMuted ? 'Silenciado' : isSpeaking ? 'Falando...' : 'Na sala'}
+                      {peer.micMuted ? t.micOff : isSpeaking ? t.speakingNow : t.connectedInRoom}
                     </span>
                   </div>
                 )}
@@ -334,7 +334,7 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
                     <button
                       type="button"
                       onClick={() => onSetPeerVolume(peer.uid, vol === 0 ? 1 : 0)}
-                      title={vol === 0 ? 'Ativar volume' : 'Silenciar participante'}
+                      title={vol === 0 ? t.unmuteMic : t.muteMic}
                       className="text-zinc-300 hover:text-white"
                     >
                       {vol === 0 ? (
@@ -349,8 +349,8 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
                       max={100}
                       value={Math.round(vol * 100)}
                       onChange={(e) => onSetPeerVolume(peer.uid, Number(e.target.value) / 100)}
-                      title={`Volume de ${peer.displayName}: ${Math.round(vol * 100)}%`}
-                      className="w-16 accent-indigo-500 cursor-pointer"
+                      title={`${t.participantVolume}: ${Math.round(vol * 100)}%`}
+                      className="w-16 accent-blue-500 cursor-pointer"
                     />
                     {peer.micMuted && <MicOff className="w-3.5 h-3.5 text-rose-400" />}
                   </div>
@@ -367,7 +367,11 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
           <span className="w-2 h-2 rounded-full bg-emerald-400" />
           <span className="text-zinc-200 font-medium">{channel.name}</span>
           <span aria-hidden="true">·</span>
-          <span className="tabular-nums">{peerList.length + 1} na chamada</span>
+          <span className="tabular-nums">
+            {peerList.length + 1} {t.participantsInRoom}
+          </span>
+          <span aria-hidden="true">·</span>
+          <span className="text-zinc-500">{livekitActive ? t.livekitActive : t.webrtcDirect}</span>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -381,7 +385,7 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
             }`}
           >
             {micMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-            {micMuted ? 'Ativar Mic' : 'Silenciar'}
+            {micMuted ? t.unmuteMic : t.muteMic}
           </button>
 
           <button
@@ -389,12 +393,12 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
             onClick={onToggleCam}
             className={`px-3.5 py-2.5 rounded-xl text-xs font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
               camEnabled
-                ? 'bg-indigo-500/20 border border-indigo-400/35 text-indigo-200 hover:bg-indigo-500/30'
+                ? 'bg-blue-500/20 border border-blue-400/35 text-blue-200 hover:bg-blue-500/30'
                 : 'bg-white/8 border border-white/10 text-zinc-100 hover:bg-white/14'
             }`}
           >
             {camEnabled ? <Camera className="w-4 h-4" /> : <CameraOff className="w-4 h-4" />}
-            {camEnabled ? 'Desligar Câmera' : 'Ligar Câmera'}
+            {camEnabled ? t.camOff : t.camOn}
           </button>
 
           <button
@@ -403,11 +407,11 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
             className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap ${
               screenSharing
                 ? 'bg-sky-500 text-zinc-950 hover:bg-sky-400 shadow-lg shadow-sky-500/20'
-                : 'bg-indigo-500 hover:bg-indigo-400 text-white shadow-lg shadow-indigo-500/20'
+                : 'bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white shadow-lg shadow-blue-500/20'
             }`}
           >
             {screenSharing ? <MonitorOff className="w-4 h-4" /> : <MonitorUp className="w-4 h-4" />}
-            {screenSharing ? 'Parar Compartilhamento' : 'Compartilhar Tela'}
+            {screenSharing ? t.stopShare : t.shareScreen}
           </button>
 
           <button
@@ -416,7 +420,7 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
             className="px-3.5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap"
           >
             <PhoneOff className="w-4 h-4" />
-            Desconectar
+            {t.leaveCall}
           </button>
         </div>
       </div>

@@ -1,6 +1,9 @@
+export type LanguageCode = 'pt-BR' | 'en' | 'ru';
 export type PresenceStatus = 'online' | 'idle' | 'dnd' | 'invisible';
 export type ServerRole = 'owner' | 'admin' | 'member';
 export type ChannelType = 'text' | 'voice' | 'video';
+export type RoomVisibility = 'public' | 'private';
+export type MessageRetention = '5m' | '15m' | '60m' | 'until_close';
 export type FriendshipStatus = 'pending' | 'accepted' | 'declined';
 export type NotificationType =
   | 'message'
@@ -12,6 +15,7 @@ export type NotificationType =
 
 export interface UserPublic {
   uid: string;
+  tag?: string;
   displayName: string;
   username: string;
   bio: string;
@@ -40,6 +44,10 @@ export interface ServerDoc {
   iconDataUrl: string;
   ownerId: string;
   inviteCode: string;
+  visibility?: RoomVisibility;
+  retention?: MessageRetention;
+  clearOnClose?: boolean;
+  memberCount?: number;
   createdAt: unknown;
   updatedAt: unknown;
 }
@@ -87,15 +95,22 @@ export interface ChatMessage {
   threadId?: string;
   authorId: string;
   authorName: string;
+  authorTag?: string;
   authorAvatar: string;
   content: string;
+  attachmentId?: string;
   attachmentName: string;
   attachmentType: string;
+  attachmentSize?: number;
   attachmentDataUrl: string;
+  attachmentUrl?: string;
+  attachmentExpiresAt?: number;
+  attachmentExpired?: boolean;
   replyToId: string;
   replyToAuthor: string;
   replyToSnippet: string;
   edited: boolean;
+  expiresAt?: number;
   createdAt: unknown;
   updatedAt: unknown;
 }

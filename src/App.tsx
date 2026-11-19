@@ -1,17 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { onAuthStateChanged, signOut, User } from 'firebase/auth';
-import {
-  collection,
-  doc,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  where,
-} from 'firebase/firestore';
 import {
   Bell,
   ExternalLink,
+  Globe,
   Hash,
   Menu,
   MonitorOff,
@@ -21,39 +12,8 @@ import {
   Volume2,
   X,
 } from 'lucide-react';
-import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
-import {
-  createCategory,
-  createChannel,
-  createNotification,
-  createServer,
-  deleteCategory,
-  deleteChannel,
-  deleteChannelMessage,
-  deleteDmMessage,
-  editChannelMessage,
-  editDmMessage,
-  ensureUserProfiles,
-  findUserByUsername,
-  getOrCreateDmThread,
-  joinServerByInviteCode,
-  leaveServer,
-  markAllNotificationsRead,
-  markNotificationRead,
-  removeFriendship,
-  respondFriendRequest,
-  sendChannelMessage,
-  sendDmMessage,
-  sendFriendRequest,
-  toggleChannelReaction,
-  toggleDmReaction,
-  updateCategory,
-  updateChannel,
-  updateMemberRole,
-  updateServerInfo,
-  updateUserPrivatePreferences,
-  updateUserPublicProfile,
-} from './lib/firestoreService';
+import { ensureSupabaseAnonymousSession } from './lib/supabaseClient';
+import { I18nProvider, useI18n } from './i18n/I18nContext';
 import { pairId } from './lib/validation';
 import { useWebSocketSignaling } from './hooks/useWebSocketSignaling';
 import { useWebRTC } from './hooks/useWebRTC';
@@ -61,21 +21,16 @@ import {
   CategoryDoc,
   ChannelDoc,
   ChannelType,
-  ChatMessage,
-  DmThread,
-  FriendshipDoc,
-  MessageReaction,
-  NotificationItem,
+  MessageRetention,
   PresenceStatus,
-  ServerDoc,
+  RoomVisibility,
   ServerMember,
-  ServerMembership,
   ToastAlert,
   UserPrivate,
   UserPublic,
 } from './types';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { AuthView } from './components/AuthView';
+import { EntryView } from './components/EntryView';
 import { ServerSidebar } from './components/ServerSidebar';
 import { ChannelSidebar } from './components/ChannelSidebar';
 import { MembersSidebar } from './components/MembersSidebar';
@@ -87,33 +42,55 @@ import {
   ChannelModal,
   CreateServerModal,
   JoinServerModal,
+  MediaConsentModal,
   NotificationsModal,
   ParticipantProfileModal,
+  PrivacyPolicyModal,
+  PublicRoomsModal,
   ServerSettingsModal,
   UserSettingsModal,
 } from './components/Modals';
 
-interface GuestSession {
+interface ZoneSession {
   uid: string;
+  tag: string;
   displayName: string;
   username: string;
+  avatarDataUrl: string;
+  initialInviteCode?: string;
 }
 
-const INSTANT_SESSION_KEY = 'vesper_instant_session';
+const ZONE_SESSION_KEY = 'zone_session_v1';
+const ZONE_MEDIA_CONSENT_KEY = 'zone_media_consent_v1';
 
-function VesperPlatform() {
-  const [authReady, setAuthReady] = useState(false);
-  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
-  const [publicProfile, setPublicProfile] = useState<UserPublic | null>(null);
-  const [privateProfile, setPrivateProfile] = useState<UserPrivate | null>(null);
-  const [bootstrapping, setBootstrapping] = useState(false);
+function computeShortTag(uid: string): string {
+  let hash = 0;
+  for (let i = 0; i < uid.length; i++) {
+    hash = (hash * 31 + uid.charCodeAt(i)) >>> 0;
+  }
+  return `#${hash.toString(16).toUpperCase().padStart(4, '0').slice(0, 4)}`;
+}
 
-  // Instant (No-Account / No-Database) Session State
-  const [guestSession, setGuestSession] = useState<GuestSession | null>(() => {
+function readUrlInviteCode(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const room = params.get('room') || params.get('invite') || '';
+    return room.trim().toUpperCase().slice(0, 16);
+  } catch {
+    return '';
+  }
+}
+
+function ZonePlatform() {
+  const { t } = useI18n();
+  const [urlInviteCode] = useState<string>(readUrlInviteCode);
+
+  const [zoneSession, setZoneSession] = useState<ZoneSession | null>(() => {
     try {
-      const raw = sessionStorage.getItem(INSTANT_SESSION_KEY);
+      const raw = sessionStorage.getItem(ZONE_SESSION_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as GuestSession;
+        const parsed = JSON.parse(raw) as ZoneSession;
         if (parsed && parsed.uid && parsed.displayName) return parsed;
       }
     } catch {
@@ -121,8 +98,17 @@ function VesperPlatform() {
     }
     return null;
   });
-  const [guestBlockedUids, setGuestBlockedUids] = useState<string[]>([]);
-  const [guestNotificationsEnabled, setGuestNotificationsEnabled] = useState(true);
+
+  const [blockedUids, setBlockedUids] = useState<string[]>([]);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [mediaConsentGranted, setMediaConsentGranted] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem(ZONE_MEDIA_CONSENT_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [pendingMediaAction, setPendingMediaAction] = useState<(() => void) | null>(null);
 
   // Navigation & Workspace State
   const [activeMode, setActiveMode] = useState<'server' | 'home'>('server');
@@ -132,23 +118,10 @@ function VesperPlatform() {
   const [showMembersDrawer, setShowMembersDrawer] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  // Firestore Collections State
-  const [memberships, setMemberships] = useState<ServerMembership[]>([]);
-  const [serversById, setServersById] = useState<Record<string, ServerDoc>>({});
-  const [members, setMembers] = useState<ServerMember[]>([]);
-  const [categories, setCategories] = useState<CategoryDoc[]>([]);
-  const [channels, setChannels] = useState<ChannelDoc[]>([]);
-  const [channelMessages, setChannelMessages] = useState<ChatMessage[]>([]);
-  const [channelReactions, setChannelReactions] = useState<MessageReaction[]>([]);
-  const [friendships, setFriendships] = useState<FriendshipDoc[]>([]);
-  const [dmThreads, setDmThreads] = useState<DmThread[]>([]);
-  const [dmMessages, setDmMessages] = useState<ChatMessage[]>([]);
-  const [dmReactions, setDmReactions] = useState<MessageReaction[]>([]);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [usersByUid, setUsersByUid] = useState<Record<string, UserPublic>>({});
-
   // Toasts & Modals
   const [toasts, setToasts] = useState<ToastAlert[]>([]);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [publicRoomsOpen, setPublicRoomsOpen] = useState(false);
   const [userSettingsOpen, setUserSettingsOpen] = useState(false);
   const [createServerOpen, setCreateServerOpen] = useState(false);
   const [joinServerOpen, setJoinServerOpen] = useState(false);
@@ -168,104 +141,110 @@ function VesperPlatform() {
     role?: ServerMember['role'];
   } | null>(null);
 
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.title = `${t.brandName} — ${t.brandSubtitle}`;
+    }
+  }, [t.brandName, t.brandSubtitle]);
+
   const pushToast = useCallback((alert: Omit<ToastAlert, 'id' | 'createdAt'>) => {
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     setToasts((prev) => [{ ...alert, id, createdAt: Date.now() }, ...prev].slice(0, 4));
     window.setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
+      setToasts((prev) => prev.filter((tItem) => tItem.id !== id));
     }, 4800);
   }, []);
 
-  const handleEnterInstantMode = useCallback((rawName: string) => {
-    const cleanName = rawName.trim().slice(0, 48) || 'Visitante';
-    const uid = `guest_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-    const baseUser = cleanName
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9_.-]/g, '')
-      .slice(0, 20);
-    const username = `${baseUser || 'visitante'}_${uid.slice(-4)}`;
-    const session: GuestSession = { uid, displayName: cleanName, username };
-    try {
-      sessionStorage.setItem(INSTANT_SESSION_KEY, JSON.stringify(session));
-    } catch {
-      // ignore storage errors
-    }
-    setGuestBlockedUids([]);
-    setGuestNotificationsEnabled(true);
-    setActiveMode('server');
-    setActiveServerId(null);
-    setActiveChannelId(null);
-    setActiveDmPeerUid(null);
-    setGuestSession(session);
-  }, []);
+  const handleEnterZone = useCallback(
+    async (payload: { nickname: string; avatarDataUrl: string; inviteCode: string }) => {
+      const cleanName = payload.nickname.trim().slice(0, 32) || 'Guest';
+      const supaUid = await ensureSupabaseAnonymousSession();
+      const uid =
+        supaUid ||
+        `zone_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+      const tag = computeShortTag(uid);
+      const baseUser = cleanName
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9_.-]/g, '')
+        .slice(0, 20);
+      const username = `${baseUser || 'guest'}_${uid.slice(-4)}`;
+      const session: ZoneSession = {
+        uid,
+        tag,
+        displayName: cleanName,
+        username,
+        avatarDataUrl: payload.avatarDataUrl,
+        initialInviteCode: payload.inviteCode || urlInviteCode || '',
+      };
 
-  // Auth listener
-  useEffect(() => {
-    return onAuthStateChanged(auth, async (user) => {
-      setFirebaseUser(user);
-      setAuthReady(true);
-      if (user && user.emailVerified) {
-        setBootstrapping(true);
-        try {
-          const pendingUsername = sessionStorage.getItem('vesper_pending_username') || undefined;
-          if (pendingUsername) sessionStorage.removeItem('vesper_pending_username');
-          const { publicProfile: pub, privateProfile: priv } = await ensureUserProfiles(
-            user,
-            user.displayName || undefined,
-            pendingUsername
-          );
-          setPublicProfile(pub);
-          setPrivateProfile(priv);
-        } finally {
-          setBootstrapping(false);
-        }
-      } else {
-        setPublicProfile(null);
-        setPrivateProfile(null);
+      try {
+        sessionStorage.setItem(ZONE_SESSION_KEY, JSON.stringify(session));
+      } catch {
+        // ignore storage errors
       }
-    });
-  }, []);
+      setBlockedUids([]);
+      setNotificationsEnabled(true);
+      setActiveMode('server');
+      setActiveServerId(null);
+      setActiveChannelId(null);
+      setActiveDmPeerUid(null);
+      setZoneSession(session);
+    },
+    [urlInviteCode]
+  );
 
-  const isInstant = Boolean(guestSession);
-  const verifiedUid =
-    !isInstant && firebaseUser && firebaseUser.emailVerified && publicProfile
-      ? firebaseUser.uid
-      : null;
-  const activeUid = isInstant ? guestSession!.uid : verifiedUid;
+  const activeUid = zoneSession?.uid || null;
 
-  const fallbackInstantPublicProfile = useMemo<UserPublic | null>(() => {
-    if (!guestSession) return null;
+  const fallbackPublicProfile = useMemo<UserPublic | null>(() => {
+    if (!zoneSession) return null;
     const now = Date.now();
     return {
-      uid: guestSession.uid,
-      displayName: guestSession.displayName,
-      username: guestSession.username,
-      bio: 'Conectado via Modo Instantâneo Vesper.',
+      uid: zoneSession.uid,
+      tag: zoneSession.tag,
+      displayName: zoneSession.displayName,
+      username: zoneSession.username,
+      bio: '',
       customStatus: '',
       presence: 'online',
-      avatarDataUrl: '',
+      avatarDataUrl: zoneSession.avatarDataUrl,
       createdAt: now,
       updatedAt: now,
     };
-  }, [guestSession]);
+  }, [zoneSession]);
 
-  const fallbackInstantPrivateProfile = useMemo<UserPrivate | null>(() => {
-    if (!guestSession) return null;
+  const fallbackPrivateProfile = useMemo<UserPrivate | null>(() => {
+    if (!zoneSession) return null;
     const now = Date.now();
     return {
-      uid: guestSession.uid,
-      email: 'Modo Instantâneo (sem conta)',
-      blockedUids: guestBlockedUids,
-      notificationsEnabled: guestNotificationsEnabled,
+      uid: zoneSession.uid,
+      email: zoneSession.tag,
+      blockedUids,
+      notificationsEnabled,
       createdAt: now,
       updatedAt: now,
     };
-  }, [guestSession, guestBlockedUids, guestNotificationsEnabled]);
+  }, [zoneSession, blockedUids, notificationsEnabled]);
 
-  // Real-time WebSocket signaling & presence
+  const alertText = useMemo(
+    () => ({
+      screenStartedTitle: t.alertScreenStartedTitle,
+      screenStartedBody: t.alertScreenStartedBody,
+      screenStoppedTitle: t.alertScreenStoppedTitle,
+      screenStoppedBody: t.alertScreenStoppedBody,
+      peerJoinedTitle: t.alertPeerJoinedTitle,
+      peerJoinedBody: t.alertPeerJoinedBody,
+      fileExpiredTitle: t.alertFileExpiredTitle,
+      fileExpiredBody: t.alertFileExpiredBody,
+      roomClosedTitle: t.alertRoomClosedTitle,
+      roomClosedBody: t.alertRoomClosedBody,
+    }),
+    [t]
+  );
+
   const {
+    usingStaticFallback,
     livePresences,
     voiceRoster,
     typingByChannel,
@@ -274,40 +253,25 @@ function VesperPlatform() {
     subscribeSignal,
   } = useWebSocketSignaling({
     uid: activeUid,
-    displayName:
-      (isInstant
-        ? fallbackInstantPublicProfile?.displayName
-        : publicProfile?.displayName) || '',
-    username: isInstant ? guestSession?.username : publicProfile?.username,
-    avatarDataUrl:
-      (isInstant
-        ? fallbackInstantPublicProfile?.avatarDataUrl
-        : publicProfile?.avatarDataUrl) || '',
-    presence:
-      (isInstant
-        ? fallbackInstantPublicProfile?.presence
-        : publicProfile?.presence) || 'online',
+    displayName: fallbackPublicProfile?.displayName || '',
+    username: zoneSession?.username,
+    avatarDataUrl: fallbackPublicProfile?.avatarDataUrl || '',
+    presence: fallbackPublicProfile?.presence || 'online',
     activeServerId,
-    isInstant,
+    initialInviteCode: zoneSession?.initialInviteCode || urlInviteCode,
+    isInstant: true,
+    alertText,
     onAlert: (alert) => {
-      const enabled = isInstant
-        ? guestNotificationsEnabled
-        : privateProfile?.notificationsEnabled !== false;
-      if (enabled) {
+      if (notificationsEnabled) {
         pushToast(alert);
       }
     },
   });
 
-  const effectivePublicProfile: UserPublic | null = isInstant
-    ? instantSnapshot?.usersByUid[guestSession!.uid] || fallbackInstantPublicProfile
-    : publicProfile;
+  const effectivePublicProfile: UserPublic | null = zoneSession
+    ? instantSnapshot?.usersByUid[zoneSession.uid] || fallbackPublicProfile
+    : null;
 
-  const effectivePrivateProfile: UserPrivate | null = isInstant
-    ? fallbackInstantPrivateProfile
-    : privateProfile;
-
-  // Real WebRTC Voice, Video & Screen Sharing Engine
   const rtc = useWebRTC({
     uid: activeUid,
     displayName: effectivePublicProfile?.displayName || '',
@@ -317,9 +281,9 @@ function VesperPlatform() {
     onAlert: pushToast,
   });
 
-  // Subscribe to Instant Mode server create/join confirmations
+  // Subscribe to server create/join/close events
   useEffect(() => {
-    if (!isInstant) return;
+    if (!zoneSession) return;
     return subscribeSignal((msg) => {
       if (msg.type === 'instant:server-created' || msg.type === 'instant:server-joined') {
         const srvId = String(msg.serverId || '');
@@ -327,23 +291,30 @@ function VesperPlatform() {
           setActiveServerId(srvId);
           setActiveMode('server');
         }
+      } else if (msg.type === 'zone:room-closed') {
+        const closedId = String(msg.serverId || '');
+        if (closedId && activeServerId === closedId) {
+          rtc.leaveRoom();
+          setActiveServerId(null);
+          setActiveChannelId(null);
+        }
       }
     });
-  }, [isInstant, subscribeSignal]);
+  }, [zoneSession, subscribeSignal, activeServerId, rtc]);
 
-  // Toast new unread notifications in Instant Mode
-  const seenInstantNotifsRef = useRef<Set<string>>(new Set());
-  const instantNotifsBootedRef = useRef(false);
+  // Toast unread instant notifications
+  const seenNotifsRef = useRef<Set<string>>(new Set());
+  const notifsBootedRef = useRef(false);
   useEffect(() => {
-    if (!isInstant) {
-      seenInstantNotifsRef.current.clear();
-      instantNotifsBootedRef.current = false;
+    if (!zoneSession) {
+      seenNotifsRef.current.clear();
+      notifsBootedRef.current = false;
       return;
     }
     const list = instantSnapshot?.notifications || [];
-    if (instantNotifsBootedRef.current && guestNotificationsEnabled) {
+    if (notifsBootedRef.current && notificationsEnabled) {
       for (const item of list) {
-        if (!item.read && !seenInstantNotifsRef.current.has(item.id)) {
+        if (!item.read && !seenNotifsRef.current.has(item.id)) {
           pushToast({
             type: item.type,
             title: item.title,
@@ -353,381 +324,45 @@ function VesperPlatform() {
       }
     }
     if (instantSnapshot) {
-      instantNotifsBootedRef.current = true;
-      seenInstantNotifsRef.current = new Set(list.filter((i) => !i.read).map((i) => i.id));
+      notifsBootedRef.current = true;
+      seenNotifsRef.current = new Set(list.filter((i) => !i.read).map((i) => i.id));
     }
-  }, [isInstant, instantSnapshot, guestNotificationsEnabled, pushToast]);
+  }, [zoneSession, instantSnapshot, notificationsEnabled, pushToast]);
 
-  // Subscribe to own public & private profile + memberships + friendships + DMs + notifications
-  useEffect(() => {
-    if (!verifiedUid) return;
-
-    const unsubPub = onSnapshot(
-      doc(db, 'usersPublic', verifiedUid),
-      (snap) => {
-        if (snap.exists()) {
-          const data = snap.data() as UserPublic;
-          setPublicProfile(data);
-          setUsersByUid((prev) => ({ ...prev, [verifiedUid]: data }));
-        }
-      },
-      (err) => handleFirestoreError(err, OperationType.GET, `usersPublic/${verifiedUid}`)
-    );
-
-    const unsubPriv = onSnapshot(
-      doc(db, 'usersPrivate', verifiedUid),
-      (snap) => {
-        if (snap.exists()) {
-          setPrivateProfile(snap.data() as UserPrivate);
-        }
-      },
-      (err) => handleFirestoreError(err, OperationType.GET, `usersPrivate/${verifiedUid}`)
-    );
-
-    const unsubMemberships = onSnapshot(
-      query(collection(db, 'serverMemberships'), where('userId', '==', verifiedUid)),
-      (snap) => {
-        const list = snap.docs.map((d) => d.data() as ServerMembership);
-        setMemberships(list);
-      },
-      (err) => handleFirestoreError(err, OperationType.LIST, 'serverMemberships')
-    );
-
-    const unsubFriendships = onSnapshot(
-      query(collection(db, 'friendships'), where('users', 'array-contains', verifiedUid)),
-      (snap) => {
-        setFriendships(snap.docs.map((d) => d.data() as FriendshipDoc));
-      },
-      (err) => handleFirestoreError(err, OperationType.LIST, 'friendships')
-    );
-
-    const unsubDms = onSnapshot(
-      query(collection(db, 'dmThreads'), where('participants', 'array-contains', verifiedUid)),
-      (snap) => {
-        setDmThreads(snap.docs.map((d) => d.data() as DmThread));
-      },
-      (err) => handleFirestoreError(err, OperationType.LIST, 'dmThreads')
-    );
-
-    const prevUnreadIds = new Set<string>();
-    let initialNotifsLoaded = false;
-
-    const unsubNotifs = onSnapshot(
-      query(
-        collection(db, 'notifications'),
-        where('recipientId', '==', verifiedUid),
-        limit(50)
-      ),
-      (snap) => {
-        const list = snap.docs
-          .map((d) => d.data() as NotificationItem)
-          .sort((a, b) => {
-            const ta =
-              a.createdAt && typeof (a.createdAt as { toMillis?: () => number }).toMillis === 'function'
-                ? (a.createdAt as { toMillis: () => number }).toMillis()
-                : 0;
-            const tb =
-              b.createdAt && typeof (b.createdAt as { toMillis?: () => number }).toMillis === 'function'
-                ? (b.createdAt as { toMillis: () => number }).toMillis()
-                : 0;
-            return tb - ta;
-          });
-        if (initialNotifsLoaded) {
-          for (const item of list) {
-            if (!item.read && !prevUnreadIds.has(item.id)) {
-              pushToast({
-                type: item.type,
-                title: item.title,
-                body: item.body,
-              });
-            }
-          }
-        }
-        initialNotifsLoaded = true;
-        prevUnreadIds.clear();
-        list.forEach((i) => {
-          if (!i.read) prevUnreadIds.add(i.id);
-        });
-        setNotifications(list);
-      },
-      (err) => handleFirestoreError(err, OperationType.LIST, 'notifications')
-    );
-
-    return () => {
-      unsubPub();
-      unsubPriv();
-      unsubMemberships();
-      unsubFriendships();
-      unsubDms();
-      unsubNotifs();
-    };
-  }, [verifiedUid, pushToast]);
-
-  // Subscribe to each joined Server document
-  useEffect(() => {
-    if (!verifiedUid) return;
-    const unsubs: (() => void)[] = [];
-    const serverIds = memberships.map((m) => m.serverId);
-
-    for (const srvId of serverIds) {
-      const unsub = onSnapshot(
-        doc(db, 'servers', srvId),
-        (snap) => {
-          if (snap.exists()) {
-            setServersById((prev) => ({ ...prev, [srvId]: snap.data() as ServerDoc }));
-          }
-        },
-        (err) => handleFirestoreError(err, OperationType.GET, `servers/${srvId}`)
-      );
-      unsubs.push(unsub);
-    }
-
-    if (serverIds.length > 0 && (!activeServerId || !serverIds.includes(activeServerId))) {
-      setActiveServerId(serverIds[0]);
-    }
-
-    return () => {
-      unsubs.forEach((u) => u());
-    };
-  }, [verifiedUid, memberships, activeServerId]);
-
-  // Subscribe to active server's members, categories, and channels
-  useEffect(() => {
-    if (!verifiedUid || !activeServerId) {
-      setMembers([]);
-      setCategories([]);
-      setChannels([]);
-      return;
-    }
-
-    const unsubMembers = onSnapshot(
-      collection(db, 'servers', activeServerId, 'members'),
-      (snap) => {
-        setMembers(snap.docs.map((d) => d.data() as ServerMember));
-      },
-      (err) => handleFirestoreError(err, OperationType.LIST, `servers/${activeServerId}/members`)
-    );
-
-    const unsubCategories = onSnapshot(
-      collection(db, 'servers', activeServerId, 'categories'),
-      (snap) => {
-        setCategories(snap.docs.map((d) => d.data() as CategoryDoc));
-      },
-      (err) => handleFirestoreError(err, OperationType.LIST, `servers/${activeServerId}/categories`)
-    );
-
-    const unsubChannels = onSnapshot(
-      collection(db, 'servers', activeServerId, 'channels'),
-      (snap) => {
-        const list = snap.docs.map((d) => d.data() as ChannelDoc);
-        setChannels(list);
-        if (list.length > 0) {
-          setActiveChannelId((prev) => {
-            if (prev && list.some((c) => c.id === prev)) return prev;
-            const firstText = list.find((c) => c.type === 'text');
-            return (firstText || list[0]).id;
-          });
-        } else {
-          setActiveChannelId(null);
-        }
-      },
-      (err) => handleFirestoreError(err, OperationType.LIST, `servers/${activeServerId}/channels`)
-    );
-
-    return () => {
-      unsubMembers();
-      unsubCategories();
-      unsubChannels();
-    };
-  }, [verifiedUid, activeServerId]);
-
-  // Subscribe to public profiles of all relevant users (members, friends, DM peers, blocked)
-  const watchedUidsKey = useMemo(() => {
-    const set = new Set<string>();
-    members.forEach((m) => set.add(m.uid));
-    friendships.forEach((f) => f.users.forEach((u) => set.add(u)));
-    dmThreads.forEach((t) => t.participants.forEach((u) => set.add(u)));
-    privateProfile?.blockedUids?.forEach((u) => set.add(u));
-    if (verifiedUid) set.delete(verifiedUid);
-    return Array.from(set).sort().join(',');
-  }, [members, friendships, dmThreads, privateProfile?.blockedUids, verifiedUid]);
-
-  useEffect(() => {
-    if (!verifiedUid || !watchedUidsKey) return;
-    const uids = watchedUidsKey.split(',').filter(Boolean);
-    const unsubs = uids.map((targetUid) =>
-      onSnapshot(
-        doc(db, 'usersPublic', targetUid),
-        (snap) => {
-          if (snap.exists()) {
-            setUsersByUid((prev) => ({ ...prev, [targetUid]: snap.data() as UserPublic }));
-          }
-        },
-        (err) => handleFirestoreError(err, OperationType.GET, `usersPublic/${targetUid}`)
-      )
-    );
-    return () => unsubs.forEach((u) => u());
-  }, [verifiedUid, watchedUidsKey]);
-
-  const activeChannel = useMemo(
-    () => channels.find((c) => c.id === activeChannelId) || null,
-    [channels, activeChannelId]
-  );
-
-  // Subscribe to active text channel messages & reactions
-  useEffect(() => {
-    if (
-      !verifiedUid ||
-      activeMode !== 'server' ||
-      !activeServerId ||
-      !activeChannel ||
-      activeChannel.type !== 'text'
-    ) {
-      setChannelMessages([]);
-      setChannelReactions([]);
-      return;
-    }
-
-    const msgQuery = query(
-      collection(db, 'servers', activeServerId, 'channels', activeChannel.id, 'messages'),
-      orderBy('createdAt', 'asc'),
-      limit(150)
-    );
-    const unsubMsgs = onSnapshot(
-      msgQuery,
-      (snap) => {
-        setChannelMessages(snap.docs.map((d) => d.data() as ChatMessage));
-      },
-      (err) =>
-        handleFirestoreError(
-          err,
-          OperationType.LIST,
-          `servers/${activeServerId}/channels/${activeChannel.id}/messages`
-        )
-    );
-
-    const unsubReacts = onSnapshot(
-      collection(db, 'servers', activeServerId, 'channels', activeChannel.id, 'reactions'),
-      (snap) => {
-        setChannelReactions(snap.docs.map((d) => d.data() as MessageReaction));
-      },
-      (err) =>
-        handleFirestoreError(
-          err,
-          OperationType.LIST,
-          `servers/${activeServerId}/channels/${activeChannel.id}/reactions`
-        )
-    );
-
-    return () => {
-      unsubMsgs();
-      unsubReacts();
-    };
-  }, [verifiedUid, activeMode, activeServerId, activeChannel]);
-
-  // Subscribe to active DM thread messages & reactions
-  const activeDmThreadId = useMemo(() => {
-    if (!activeUid || !activeDmPeerUid) return null;
-    return pairId(activeUid, activeDmPeerUid);
-  }, [activeUid, activeDmPeerUid]);
-
-  useEffect(() => {
-    if (!verifiedUid || activeMode !== 'home' || !activeDmThreadId) {
-      setDmMessages([]);
-      setDmReactions([]);
-      return;
-    }
-
-    const unsubMsgs = onSnapshot(
-      query(
-        collection(db, 'dmThreads', activeDmThreadId, 'messages'),
-        orderBy('createdAt', 'asc'),
-        limit(150)
-      ),
-      (snap) => {
-        setDmMessages(snap.docs.map((d) => d.data() as ChatMessage));
-      },
-      (err) =>
-        handleFirestoreError(err, OperationType.LIST, `dmThreads/${activeDmThreadId}/messages`)
-    );
-
-    const unsubReacts = onSnapshot(
-      collection(db, 'dmThreads', activeDmThreadId, 'reactions'),
-      (snap) => {
-        setDmReactions(snap.docs.map((d) => d.data() as MessageReaction));
-      },
-      (err) =>
-        handleFirestoreError(err, OperationType.LIST, `dmThreads/${activeDmThreadId}/reactions`)
-    );
-
-    return () => {
-      unsubMsgs();
-      unsubReacts();
-    };
-  }, [verifiedUid, activeMode, activeDmThreadId]);
-
-  // Derived collections (seamlessly unified across Firebase & Instant Mode)
-  const effectiveServers = useMemo(() => {
-    if (isInstant) return instantSnapshot?.servers || [];
-    return memberships.map((m) => serversById[m.serverId]).filter((s): s is ServerDoc => Boolean(s));
-  }, [isInstant, instantSnapshot?.servers, memberships, serversById]);
+  const effectiveServers = instantSnapshot?.servers || [];
+  const publicRooms = instantSnapshot?.publicServers || [];
 
   const effectiveServersById = useMemo(() => {
-    if (isInstant) {
-      const map: Record<string, ServerDoc> = {};
-      (instantSnapshot?.servers || []).forEach((s) => {
-        map[s.id] = s;
-      });
-      return map;
-    }
-    return serversById;
-  }, [isInstant, instantSnapshot?.servers, serversById]);
+    const map: Record<string, (typeof effectiveServers)[number]> = {};
+    effectiveServers.forEach((s) => {
+      map[s.id] = s;
+    });
+    return map;
+  }, [effectiveServers]);
 
-  const effectiveMembers = useMemo(
-    () => (isInstant ? (activeServerId ? instantSnapshot?.membersByServer[activeServerId] || [] : []) : members),
-    [isInstant, instantSnapshot?.membersByServer, activeServerId, members]
-  );
+  const effectiveMembers = activeServerId
+    ? instantSnapshot?.membersByServer[activeServerId] || []
+    : [];
+  const effectiveCategories = activeServerId
+    ? instantSnapshot?.categoriesByServer[activeServerId] || []
+    : [];
+  const effectiveChannels = activeServerId
+    ? instantSnapshot?.channelsByServer[activeServerId] || []
+    : [];
+  const effectiveUsersByUid = instantSnapshot?.usersByUid || {};
+  const effectiveFriendships = instantSnapshot?.friendships || [];
+  const effectiveDmThreads = instantSnapshot?.dmThreads || [];
+  const effectiveNotifications = instantSnapshot?.notifications || [];
 
-  const effectiveCategories = useMemo(
-    () => (isInstant ? (activeServerId ? instantSnapshot?.categoriesByServer[activeServerId] || [] : []) : categories),
-    [isInstant, instantSnapshot?.categoriesByServer, activeServerId, categories]
-  );
-
-  const effectiveChannels = useMemo(
-    () => (isInstant ? (activeServerId ? instantSnapshot?.channelsByServer[activeServerId] || [] : []) : channels),
-    [isInstant, instantSnapshot?.channelsByServer, activeServerId, channels]
-  );
-
-  const effectiveUsersByUid = useMemo(
-    () => (isInstant ? instantSnapshot?.usersByUid || {} : usersByUid),
-    [isInstant, instantSnapshot?.usersByUid, usersByUid]
-  );
-
-  const effectiveFriendships = useMemo(
-    () => (isInstant ? instantSnapshot?.friendships || [] : friendships),
-    [isInstant, instantSnapshot?.friendships, friendships]
-  );
-
-  const effectiveDmThreads = useMemo(
-    () => (isInstant ? instantSnapshot?.dmThreads || [] : dmThreads),
-    [isInstant, instantSnapshot?.dmThreads, dmThreads]
-  );
-
-  const effectiveNotifications = useMemo(
-    () => (isInstant ? instantSnapshot?.notifications || [] : notifications),
-    [isInstant, instantSnapshot?.notifications, notifications]
-  );
-
-  // Auto-select server & channel in Instant Mode
   useEffect(() => {
-    if (!isInstant || effectiveServers.length === 0) return;
+    if (!zoneSession || effectiveServers.length === 0) return;
     if (!activeServerId || !effectiveServers.some((s) => s.id === activeServerId)) {
       setActiveServerId(effectiveServers[0].id);
     }
-  }, [isInstant, effectiveServers, activeServerId]);
+  }, [zoneSession, effectiveServers, activeServerId]);
 
   useEffect(() => {
-    if (!isInstant) return;
+    if (!zoneSession) return;
     if (effectiveChannels.length === 0) {
       setActiveChannelId(null);
       return;
@@ -737,59 +372,34 @@ function VesperPlatform() {
       const firstText = effectiveChannels.find((c) => c.type === 'text');
       return (firstText || effectiveChannels[0]).id;
     });
-  }, [isInstant, effectiveChannels]);
+  }, [zoneSession, effectiveChannels]);
 
   const effectiveActiveChannel = useMemo(
     () => effectiveChannels.find((c) => c.id === activeChannelId) || null,
     [effectiveChannels, activeChannelId]
   );
 
-  const effectiveChannelMessages = useMemo(
-    () =>
-      isInstant
-        ? effectiveActiveChannel
-          ? instantSnapshot?.messagesByChannel[effectiveActiveChannel.id] || []
-          : []
-        : channelMessages,
-    [isInstant, effectiveActiveChannel, instantSnapshot?.messagesByChannel, channelMessages]
-  );
+  const effectiveChannelMessages = effectiveActiveChannel
+    ? instantSnapshot?.messagesByChannel[effectiveActiveChannel.id] || []
+    : [];
+  const effectiveChannelReactions = effectiveActiveChannel
+    ? instantSnapshot?.reactionsByChannel[effectiveActiveChannel.id] || []
+    : [];
 
-  const effectiveChannelReactions = useMemo(
-    () =>
-      isInstant
-        ? effectiveActiveChannel
-          ? instantSnapshot?.reactionsByChannel[effectiveActiveChannel.id] || []
-          : []
-        : channelReactions,
-    [isInstant, effectiveActiveChannel, instantSnapshot?.reactionsByChannel, channelReactions]
-  );
+  const activeDmThreadId = useMemo(() => {
+    if (!activeUid || !activeDmPeerUid) return null;
+    return pairId(activeUid, activeDmPeerUid);
+  }, [activeUid, activeDmPeerUid]);
 
-  const effectiveDmMessages = useMemo(
-    () =>
-      isInstant
-        ? activeDmThreadId
-          ? instantSnapshot?.dmMessagesByThread[activeDmThreadId] || []
-          : []
-        : dmMessages,
-    [isInstant, activeDmThreadId, instantSnapshot?.dmMessagesByThread, dmMessages]
-  );
-
-  const effectiveDmReactions = useMemo(
-    () =>
-      isInstant
-        ? activeDmThreadId
-          ? instantSnapshot?.dmReactionsByThread[activeDmThreadId] || []
-          : []
-        : dmReactions,
-    [isInstant, activeDmThreadId, instantSnapshot?.dmReactionsByThread, dmReactions]
-  );
+  const effectiveDmMessages = activeDmThreadId
+    ? instantSnapshot?.dmMessagesByThread[activeDmThreadId] || []
+    : [];
+  const effectiveDmReactions = activeDmThreadId
+    ? instantSnapshot?.dmReactionsByThread[activeDmThreadId] || []
+    : [];
 
   const activeServer = activeServerId ? effectiveServersById[activeServerId] || null : null;
-  const activeMembership = memberships.find((m) => m.serverId === activeServerId) || null;
-  const userRoleInServer = isInstant
-    ? effectiveMembers.find((m) => m.uid === activeUid)?.role || 'member'
-    : activeMembership?.role || 'member';
-  const blockedUids = effectivePrivateProfile?.blockedUids || [];
+  const userRoleInServer = effectiveMembers.find((m) => m.uid === activeUid)?.role || 'member';
 
   const acceptedFriendProfiles = useMemo(() => {
     if (!activeUid) return [];
@@ -804,68 +414,55 @@ function VesperPlatform() {
 
   const unreadNotifications = effectiveNotifications.filter((n) => !n.read).length;
 
-  // Handlers
-  const handleSelectChannel = async (ch: ChannelDoc) => {
+  const withMediaConsent = useCallback(
+    (action: () => void) => {
+      if (mediaConsentGranted) {
+        action();
+        return;
+      }
+      setPendingMediaAction(() => action);
+    },
+    [mediaConsentGranted]
+  );
+
+  const handleSelectChannel = (ch: ChannelDoc) => {
     setActiveMode('server');
     setActiveChannelId(ch.id);
     setMobileNavOpen(false);
     if (ch.type === 'voice' || ch.type === 'video') {
-      await rtc.joinRoom({
-        serverId: ch.serverId,
-        channelId: ch.id,
-        channelName: ch.name,
-        channelType: ch.type,
+      withMediaConsent(() => {
+        rtc.joinRoom({
+          serverId: ch.serverId,
+          channelId: ch.id,
+          channelName: ch.name,
+          channelType: ch.type as 'voice' | 'video',
+        });
       });
     }
   };
 
-  const handleOpenDmWith = async (peerUid: string) => {
+  const handleOpenDmWith = (peerUid: string) => {
     if (!activeUid) return;
-    if (isInstant) {
-      sendSignal({ type: 'instant:dm-open', peerUid });
-    } else {
-      await getOrCreateDmThread(activeUid, peerUid);
-    }
+    sendSignal({ type: 'instant:dm-open', peerUid });
     setActiveMode('home');
     setActiveDmPeerUid(peerUid);
     setMobileNavOpen(false);
   };
 
   const handleToggleBlock = async (targetUid: string) => {
-    if (!activeUid || !effectivePrivateProfile) return;
-    const isCurrentlyBlocked = blockedUids.includes(targetUid);
-    const next = isCurrentlyBlocked
-      ? blockedUids.filter((u) => u !== targetUid)
-      : [...blockedUids, targetUid];
-    if (isInstant) {
-      setGuestBlockedUids(next);
-    } else {
-      await updateUserPrivatePreferences(activeUid, { blockedUids: next });
-    }
+    setBlockedUids((prev) =>
+      prev.includes(targetUid) ? prev.filter((u) => u !== targetUid) : [...prev, targetUid]
+    );
   };
 
   const handleMoveChannel = async (ch: ChannelDoc, direction: 'up' | 'down') => {
     if (!activeServerId) return;
-    if (isInstant) {
-      sendSignal({
-        type: 'instant:channel-move',
-        serverId: activeServerId,
-        channelId: ch.id,
-        direction,
-      });
-      return;
-    }
-    const siblings = channels
-      .filter((c) => c.categoryId === ch.categoryId)
-      .sort((a, b) => a.position - b.position);
-    const idx = siblings.findIndex((c) => c.id === ch.id);
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (idx < 0 || swapIdx < 0 || swapIdx >= siblings.length) return;
-    const target = siblings[swapIdx];
-    await Promise.all([
-      updateChannel(activeServerId, ch.id, { position: target.position }),
-      updateChannel(activeServerId, target.id, { position: ch.position }),
-    ]);
+    sendSignal({
+      type: 'instant:channel-move',
+      serverId: activeServerId,
+      channelId: ch.id,
+      direction,
+    });
   };
 
   const lastTypingSentRef = useRef<Record<string, boolean>>({});
@@ -878,41 +475,16 @@ function VesperPlatform() {
     });
   };
 
-  if (!isInstant && (!authReady || bootstrapping)) {
+  if (!zoneSession || !effectivePublicProfile || !fallbackPrivateProfile) {
     return (
-      <div className="min-h-screen bg-[#09090B] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center animate-pulse">
-            <span className="font-display font-bold text-white">V</span>
-          </div>
-          <span className="text-xs text-zinc-400">Inicializando Vesper...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (
-    !effectivePublicProfile ||
-    !effectivePrivateProfile ||
-    (!isInstant && (!firebaseUser || !firebaseUser.emailVerified))
-  ) {
-    return (
-      <AuthView
-        unverifiedUser={firebaseUser && !firebaseUser.emailVerified ? firebaseUser : null}
-        onVerifiedRefresh={async () => {
-          if (auth.currentUser) {
-            await auth.currentUser.reload();
-            const refreshed = auth.currentUser;
-            setFirebaseUser(refreshed);
-            if (refreshed.emailVerified) {
-              const { publicProfile: pub, privateProfile: priv } = await ensureUserProfiles(refreshed);
-              setPublicProfile(pub);
-              setPrivateProfile(priv);
-            }
-          }
-        }}
-        onEnterInstantMode={handleEnterInstantMode}
-      />
+      <>
+        <EntryView
+          initialInviteCode={urlInviteCode}
+          onEnter={handleEnterZone}
+          onOpenPrivacy={() => setPrivacyOpen(true)}
+        />
+        {privacyOpen && <PrivacyPolicyModal onClose={() => setPrivacyOpen(false)} />}
+      </>
     );
   }
 
@@ -924,40 +496,71 @@ function VesperPlatform() {
   const textTypingUsers = activeTextKey ? Object.values(typingByChannel[activeTextKey] || {}) : [];
   const dmTypingUsers = activeDmKey ? Object.values(typingByChannel[activeDmKey] || {}) : [];
 
-  const handleDeleteCategoryAction = async (catId: string) => {
+  const handleDeleteCategoryAction = (catId: string) => {
     if (!activeServerId) return;
-    if (isInstant) {
-      sendSignal({ type: 'instant:category-delete', serverId: activeServerId, categoryId: catId });
-    } else {
-      await deleteCategory(activeServerId, catId);
-    }
+    sendSignal({ type: 'instant:category-delete', serverId: activeServerId, categoryId: catId });
   };
 
-  const handleDeleteChannelAction = async (chId: string) => {
+  const handleDeleteChannelAction = (chId: string) => {
     if (!activeServerId) return;
-    if (isInstant) {
-      sendSignal({ type: 'instant:channel-delete', serverId: activeServerId, channelId: chId });
-    } else {
-      await deleteChannel(activeServerId, chId);
-    }
+    sendSignal({ type: 'instant:channel-delete', serverId: activeServerId, channelId: chId });
   };
 
-  const handleLeaveServerAction = async () => {
-    if (!activeServerId || !activeUid) return;
-    if (isInstant) {
-      sendSignal({ type: 'instant:server-leave', serverId: activeServerId });
-    } else {
-      await leaveServer(activeServerId, activeUid);
-    }
+  const handleLeaveServerAction = () => {
+    if (!activeServerId) return;
+    sendSignal({ type: 'instant:server-leave', serverId: activeServerId });
     setActiveServerId(null);
   };
 
   const handleChangePresenceAction = (presence: PresenceStatus) => {
-    if (isInstant) {
-      sendSignal({ type: 'instant:profile-update', updates: { presence } });
-    } else {
-      updateUserPublicProfile(effectivePublicProfile.uid, { presence });
+    sendSignal({ type: 'instant:profile-update', updates: { presence } });
+  };
+
+  const handleCopyInviteCode = () => {
+    if (!activeServer) return;
+    navigator.clipboard.writeText(activeServer.inviteCode);
+    pushToast({
+      type: 'invite',
+      title: t.inviteCopied,
+      body: `${activeServer.inviteCode}`,
+    });
+  };
+
+  const handleCopyInviteLink = () => {
+    if (!activeServer || typeof window === 'undefined') return;
+    const url = `${window.location.origin}/?room=${activeServer.inviteCode}`;
+    navigator.clipboard.writeText(url);
+    pushToast({
+      type: 'invite',
+      title: t.inviteCopied,
+      body: t.inviteLinkCopied,
+    });
+  };
+
+  const handleStartHeaderScreenShare = () => {
+    if (rtc.screenSharing) {
+      rtc.stopScreenShare();
+      return;
     }
+    const targetRoomChannel =
+      (effectiveActiveChannel && effectiveActiveChannel.type !== 'text'
+        ? effectiveActiveChannel
+        : null) ||
+      effectiveChannels.find((c) => c.type === 'video') ||
+      effectiveChannels.find((c) => c.type === 'voice');
+    if (!targetRoomChannel) return;
+
+    withMediaConsent(async () => {
+      const started = await rtc.startScreenShare({
+        serverId: targetRoomChannel.serverId,
+        channelId: targetRoomChannel.id,
+        channelName: targetRoomChannel.name,
+        channelType: targetRoomChannel.type as 'voice' | 'video',
+      });
+      if (started) {
+        setActiveChannelId(targetRoomChannel.id);
+      }
+    });
   };
 
   return (
@@ -978,9 +581,11 @@ function VesperPlatform() {
             setActiveMode('server');
             setMobileNavOpen(false);
           }}
+          onOpenPublicRooms={() => setPublicRoomsOpen(true)}
           onOpenCreateServer={() => setCreateServerOpen(true)}
           onOpenJoinServer={() => setJoinServerOpen(true)}
           onOpenNotifications={() => setNotificationsOpen(true)}
+          onOpenPrivacy={() => setPrivacyOpen(true)}
         />
 
         {activeMode === 'server' && activeServer && (
@@ -1017,14 +622,8 @@ function VesperPlatform() {
             onMoveChannel={handleMoveChannel}
             onOpenServerSettings={() => setServerSettingsOpen(true)}
             onLeaveServer={handleLeaveServerAction}
-            onCopyInvite={() => {
-              navigator.clipboard.writeText(activeServer.inviteCode);
-              pushToast({
-                type: 'invite',
-                title: 'Convite copiado',
-                body: `Código ${activeServer.inviteCode} copiado para a área de transferência.`,
-              });
-            }}
+            onCopyInvite={handleCopyInviteCode}
+            onCopyInviteLink={handleCopyInviteLink}
             onToggleMic={rtc.toggleMic}
             onDisconnectVoice={rtc.leaveRoom}
             onChangePresence={handleChangePresenceAction}
@@ -1054,6 +653,10 @@ function VesperPlatform() {
                 setActiveMode('server');
                 setMobileNavOpen(false);
               }}
+              onOpenPublicRooms={() => {
+                setMobileNavOpen(false);
+                setPublicRoomsOpen(true);
+              }}
               onOpenCreateServer={() => {
                 setMobileNavOpen(false);
                 setCreateServerOpen(true);
@@ -1065,6 +668,10 @@ function VesperPlatform() {
               onOpenNotifications={() => {
                 setMobileNavOpen(false);
                 setNotificationsOpen(true);
+              }}
+              onOpenPrivacy={() => {
+                setMobileNavOpen(false);
+                setPrivacyOpen(true);
               }}
             />
             {activeMode === 'server' && activeServer && (
@@ -1100,18 +707,12 @@ function VesperPlatform() {
                 onDeleteChannel={handleDeleteChannelAction}
                 onMoveChannel={handleMoveChannel}
                 onOpenServerSettings={() => setServerSettingsOpen(true)}
-                onLeaveServer={async () => {
-                  await handleLeaveServerAction();
+                onLeaveServer={() => {
+                  handleLeaveServerAction();
                   setMobileNavOpen(false);
                 }}
-                onCopyInvite={() => {
-                  navigator.clipboard.writeText(activeServer.inviteCode);
-                  pushToast({
-                    type: 'invite',
-                    title: 'Convite copiado',
-                    body: `Código ${activeServer.inviteCode} copiado.`,
-                  });
-                }}
+                onCopyInvite={handleCopyInviteCode}
+                onCopyInviteLink={handleCopyInviteLink}
                 onToggleMic={rtc.toggleMic}
                 onDisconnectVoice={rtc.leaveRoom}
                 onChangePresence={handleChangePresenceAction}
@@ -1125,7 +726,6 @@ function VesperPlatform() {
       {/* Main Content Area */}
       {activeMode === 'home' ? (
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
-          {/* Mobile Bar for Home */}
           <div className="lg:hidden h-12 px-3 border-b border-white/8 bg-[#0E0F14] flex items-center justify-between">
             <button
               type="button"
@@ -1134,7 +734,7 @@ function VesperPlatform() {
             >
               <Menu className="w-5 h-5" />
             </button>
-            <span className="font-display text-sm font-semibold">Amigos & Mensagens</span>
+            <span className="font-display text-sm font-semibold">{t.friendsAndDmsTitle}</span>
             <button
               type="button"
               onClick={() => setNotificationsOpen(true)}
@@ -1145,6 +745,7 @@ function VesperPlatform() {
           </div>
           <FriendsAndDmView
             currentUser={effectivePublicProfile}
+            usingStaticFallback={usingStaticFallback}
             blockedUids={blockedUids}
             friendships={effectiveFriendships}
             dmThreads={effectiveDmThreads}
@@ -1157,101 +758,64 @@ function VesperPlatform() {
             onSelectFriendsHome={() => setActiveDmPeerUid(null)}
             onOpenDmWith={handleOpenDmWith}
             onSendFriendRequestByUsername={async (uname) => {
-              if (isInstant) {
-                const clean = uname.replace(/^@/, '').toLowerCase();
-                const target = Object.values(effectiveUsersByUid).find(
-                  (u) => u.username === clean
-                );
-                if (!target) throw new Error('Nenhum participante online encontrado com esse @.');
-                sendSignal({ type: 'instant:friend-request', username: clean, targetUid: target.uid });
-                return;
-              }
-              const target = await findUserByUsername(uname);
-              if (!target) throw new Error('Nenhum usuário encontrado com esse @.');
-              await sendFriendRequest(effectivePublicProfile, target);
+              const clean = uname.replace(/^@/, '').toLowerCase();
+              const target = Object.values(effectiveUsersByUid).find(
+                (u) => u.username === clean
+              );
+              if (!target) throw new Error(t.tempFileOpenError);
+              sendSignal({ type: 'instant:friend-request', username: clean, targetUid: target.uid });
             }}
             onRespondFriendRequest={async (fId, accept) => {
-              if (isInstant) {
-                sendSignal({ type: 'instant:friend-respond', friendshipId: fId, accept });
-              } else {
-                await respondFriendRequest(fId, accept ? 'accepted' : 'declined');
-              }
+              sendSignal({ type: 'instant:friend-respond', friendshipId: fId, accept });
             }}
             onRemoveFriendship={async (fId) => {
-              if (isInstant) {
-                sendSignal({ type: 'instant:friend-remove', friendshipId: fId });
-              } else {
-                await removeFriendship(fId);
-              }
+              sendSignal({ type: 'instant:friend-remove', friendshipId: fId });
             }}
             onToggleBlockUser={handleToggleBlock}
             onSendDmMessage={async (payload) => {
               if (!activeDmThreadId || !activeDmPeerUid) return;
-              if (isInstant) {
-                sendSignal({
-                  type: 'instant:dm-send',
-                  peerUid: activeDmPeerUid,
-                  content: payload.content,
-                  attachmentName: payload.attachment?.name || '',
-                  attachmentType: payload.attachment?.type || '',
-                  attachmentDataUrl: payload.attachment?.dataUrl || '',
-                  replyToId: payload.replyTo?.id || '',
-                  replyToAuthor: payload.replyTo?.authorName || '',
-                  replyToSnippet: payload.replyTo?.snippet || '',
-                });
-                return;
-              }
-              await sendDmMessage({
-                threadId: activeDmThreadId,
-                recipientUid: activeDmPeerUid,
-                author: effectivePublicProfile,
-                ...payload,
+              sendSignal({
+                type: 'instant:dm-send',
+                peerUid: activeDmPeerUid,
+                content: payload.content,
+                attachmentId: payload.attachment?.id,
+                attachmentName: payload.attachment?.name || '',
+                attachmentType: payload.attachment?.type || '',
+                attachmentSize: payload.attachment?.size,
+                attachmentDataUrl: payload.attachment?.dataUrl || '',
+                attachmentUrl: payload.attachment?.url,
+                attachmentExpiresAt: payload.attachment?.expiresAt,
+                replyToId: payload.replyTo?.id || '',
+                replyToAuthor: payload.replyTo?.authorName || '',
+                replyToSnippet: payload.replyTo?.snippet || '',
               });
             }}
             onEditDmMessage={async (msgId, content) => {
-              if (isInstant && activeDmPeerUid) {
+              if (activeDmPeerUid) {
                 sendSignal({
                   type: 'instant:dm-edit',
                   peerUid: activeDmPeerUid,
                   messageId: msgId,
                   content,
                 });
-                return;
-              }
-              if (activeDmThreadId) {
-                await editDmMessage(activeDmThreadId, msgId, content);
               }
             }}
             onDeleteDmMessage={async (msgId) => {
-              if (isInstant && activeDmPeerUid) {
+              if (activeDmPeerUid) {
                 sendSignal({
                   type: 'instant:dm-delete',
                   peerUid: activeDmPeerUid,
                   messageId: msgId,
                 });
-                return;
-              }
-              if (activeDmThreadId) {
-                await deleteDmMessage(activeDmThreadId, msgId);
               }
             }}
-            onToggleDmReaction={async (msgId, emoji, reacted) => {
-              if (isInstant && activeDmPeerUid) {
+            onToggleDmReaction={async (msgId, emoji) => {
+              if (activeDmPeerUid) {
                 sendSignal({
                   type: 'instant:dm-reaction',
                   peerUid: activeDmPeerUid,
                   messageId: msgId,
                   emoji,
-                });
-                return;
-              }
-              if (activeDmThreadId) {
-                await toggleDmReaction({
-                  threadId: activeDmThreadId,
-                  messageId: msgId,
-                  userId: effectivePublicProfile.uid,
-                  emoji,
-                  currentlyReacted: reacted,
                 });
               }
             }}
@@ -1279,7 +843,7 @@ function VesperPlatform() {
                     ) : effectiveActiveChannel.type === 'voice' ? (
                       <Volume2 className="w-5 h-5 text-emerald-400 shrink-0" />
                     ) : (
-                      <Video className="w-5 h-5 text-indigo-400 shrink-0" />
+                      <Video className="w-5 h-5 text-blue-400 shrink-0" />
                     )}
                     <div className="min-w-0">
                       <div className="flex items-center gap-2.5">
@@ -1298,55 +862,44 @@ function VesperPlatform() {
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setPublicRoomsOpen(true)}
+                  title={t.publicRooms}
+                  className="hidden sm:flex px-3 py-1.5 rounded-xl bg-white/[0.04] hover:bg-white/10 border border-white/8 text-xs text-zinc-200 items-center gap-1.5 whitespace-nowrap shrink-0"
+                >
+                  <Globe className="w-3.5 h-3.5 text-blue-400" />
+                  {t.publicRooms}
+                </button>
+
                 {activeServer && effectiveChannels.some((c) => c.type === 'video' || c.type === 'voice') && (
                   <button
                     type="button"
-                    onClick={async () => {
-                      if (rtc.screenSharing) {
-                        await rtc.stopScreenShare();
-                        return;
-                      }
-                      const targetRoomChannel =
-                        (effectiveActiveChannel && effectiveActiveChannel.type !== 'text'
-                          ? effectiveActiveChannel
-                          : null) ||
-                        effectiveChannels.find((c) => c.type === 'video') ||
-                        effectiveChannels.find((c) => c.type === 'voice');
-                      if (!targetRoomChannel) return;
-
-                      const started = await rtc.startScreenShare({
-                        serverId: targetRoomChannel.serverId,
-                        channelId: targetRoomChannel.id,
-                        channelName: targetRoomChannel.name,
-                        channelType: targetRoomChannel.type as 'voice' | 'video',
-                      });
-                      if (started) {
-                        setActiveChannelId(targetRoomChannel.id);
-                      }
-                    }}
+                    onClick={handleStartHeaderScreenShare}
                     className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
                       rtc.screenSharing
                         ? 'bg-sky-500 text-zinc-950 hover:bg-sky-400'
-                        : 'bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/35 text-indigo-200'
+                        : 'bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/35 text-blue-200'
                     }`}
                   >
                     {rtc.screenSharing ? (
                       <>
                         <MonitorOff className="w-3.5 h-3.5" />
-                        Parar Tela
+                        {t.stopScreenBtn}
                       </>
                     ) : (
                       <>
                         <MonitorUp className="w-3.5 h-3.5" />
-                        Compartilhar Tela
+                        {t.shareScreenBtn}
                       </>
                     )}
                   </button>
                 )}
+
                 <button
                   type="button"
                   onClick={() => setNotificationsOpen(true)}
-                  title="Notificações"
+                  title={t.notifications}
                   className="relative p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/8"
                 >
                   <Bell className="w-4 h-4" />
@@ -1357,7 +910,7 @@ function VesperPlatform() {
                 <button
                   type="button"
                   onClick={() => setShowMembersDrawer((v) => !v)}
-                  title="Lista de membros"
+                  title={t.membersTitle}
                   className={`p-2 rounded-xl transition-colors ${
                     showMembersDrawer
                       ? 'bg-white/10 text-white'
@@ -1381,7 +934,7 @@ function VesperPlatform() {
                       className="px-3 py-1 rounded-lg bg-amber-400 text-zinc-950 font-semibold flex items-center gap-1.5 hover:bg-amber-300"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
-                      Abrir em nova aba
+                      {t.openInNewTab}
                     </a>
                   )}
                   <button
@@ -1389,7 +942,7 @@ function VesperPlatform() {
                     onClick={rtc.clearMediaError}
                     className="text-amber-300 hover:text-white font-medium px-2 py-0.5"
                   >
-                    Fechar
+                    {t.closeBtn}
                   </button>
                 </div>
               </div>
@@ -1398,30 +951,40 @@ function VesperPlatform() {
             {/* Channel Viewport */}
             {!activeServer || !effectiveActiveChannel ? (
               <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-                <p className="text-sm text-zinc-300 font-medium mb-2">
-                  Selecione ou crie uma comunidade para começar
+                <p className="text-sm text-zinc-300 font-medium mb-3">
+                  {t.selectOrCreatePrompt}
                 </p>
-                <div className="flex items-center gap-3 mt-2">
+                <div className="flex flex-wrap items-center justify-center gap-3 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => setPublicRoomsOpen(true)}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold"
+                  >
+                    {t.explorePublicRoomsBtn}
+                  </button>
                   <button
                     type="button"
                     onClick={() => setCreateServerOpen(true)}
-                    className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-semibold"
+                    className="px-4 py-2 rounded-xl bg-white/8 hover:bg-white/14 text-white text-xs font-medium"
                   >
-                    Criar Servidor
+                    {t.createRoom}
                   </button>
                   <button
                     type="button"
                     onClick={() => setJoinServerOpen(true)}
                     className="px-4 py-2 rounded-xl bg-white/8 hover:bg-white/14 text-white text-xs font-medium"
                   >
-                    Entrar com Convite
+                    {t.joinByCode}
                   </button>
                 </div>
               </div>
             ) : effectiveActiveChannel.type === 'text' ? (
               <ChatArea
                 channelKey={activeTextKey}
-                placeholder={`Conversar em #${effectiveActiveChannel.name}`}
+                serverId={activeServer.id}
+                channelId={effectiveActiveChannel.id}
+                usingStaticFallback={usingStaticFallback}
+                placeholder={`${t.chatPlaceholder} #${effectiveActiveChannel.name}`}
                 messages={effectiveChannelMessages}
                 reactions={effectiveChannelReactions}
                 currentUser={effectivePublicProfile}
@@ -1431,75 +994,51 @@ function VesperPlatform() {
                 onTypingChange={(isTyping) => activeTextKey && emitTyping(activeTextKey, isTyping)}
                 onSendMessage={async (payload) => {
                   if (!activeServerId) return;
-                  if (isInstant) {
-                    sendSignal({
-                      type: 'instant:message-send',
-                      serverId: activeServerId,
-                      channelId: effectiveActiveChannel.id,
-                      content: payload.content,
-                      attachmentName: payload.attachment?.name || '',
-                      attachmentType: payload.attachment?.type || '',
-                      attachmentDataUrl: payload.attachment?.dataUrl || '',
-                      replyToId: payload.replyTo?.id || '',
-                      replyToAuthor: payload.replyTo?.authorName || '',
-                      replyToSnippet: payload.replyTo?.snippet || '',
-                    });
-                    return;
-                  }
-                  await sendChannelMessage({
+                  sendSignal({
+                    type: 'instant:message-send',
                     serverId: activeServerId,
                     channelId: effectiveActiveChannel.id,
-                    author: effectivePublicProfile,
-                    ...payload,
+                    content: payload.content,
+                    attachmentId: payload.attachment?.id,
+                    attachmentName: payload.attachment?.name || '',
+                    attachmentType: payload.attachment?.type || '',
+                    attachmentSize: payload.attachment?.size,
+                    attachmentDataUrl: payload.attachment?.dataUrl || '',
+                    attachmentUrl: payload.attachment?.url,
+                    attachmentExpiresAt: payload.attachment?.expiresAt,
+                    replyToId: payload.replyTo?.id || '',
+                    replyToAuthor: payload.replyTo?.authorName || '',
+                    replyToSnippet: payload.replyTo?.snippet || '',
                   });
                 }}
                 onEditMessage={async (msgId, content) => {
                   if (!activeServerId) return;
-                  if (isInstant) {
-                    sendSignal({
-                      type: 'instant:message-edit',
-                      serverId: activeServerId,
-                      channelId: effectiveActiveChannel.id,
-                      messageId: msgId,
-                      content,
-                    });
-                  } else {
-                    await editChannelMessage(activeServerId, effectiveActiveChannel.id, msgId, content);
-                  }
+                  sendSignal({
+                    type: 'instant:message-edit',
+                    serverId: activeServerId,
+                    channelId: effectiveActiveChannel.id,
+                    messageId: msgId,
+                    content,
+                  });
                 }}
                 onDeleteMessage={async (msgId) => {
                   if (!activeServerId) return;
-                  if (isInstant) {
-                    sendSignal({
-                      type: 'instant:message-delete',
-                      serverId: activeServerId,
-                      channelId: effectiveActiveChannel.id,
-                      messageId: msgId,
-                    });
-                  } else {
-                    await deleteChannelMessage(activeServerId, effectiveActiveChannel.id, msgId);
-                  }
+                  sendSignal({
+                    type: 'instant:message-delete',
+                    serverId: activeServerId,
+                    channelId: effectiveActiveChannel.id,
+                    messageId: msgId,
+                  });
                 }}
-                onToggleReaction={async (msgId, emoji, reacted) => {
+                onToggleReaction={async (msgId, emoji) => {
                   if (!activeServerId) return;
-                  if (isInstant) {
-                    sendSignal({
-                      type: 'instant:reaction-toggle',
-                      serverId: activeServerId,
-                      channelId: effectiveActiveChannel.id,
-                      messageId: msgId,
-                      emoji,
-                    });
-                  } else {
-                    await toggleChannelReaction({
-                      serverId: activeServerId,
-                      channelId: effectiveActiveChannel.id,
-                      messageId: msgId,
-                      userId: effectivePublicProfile.uid,
-                      emoji,
-                      currentlyReacted: reacted,
-                    });
-                  }
+                  sendSignal({
+                    type: 'instant:reaction-toggle',
+                    serverId: activeServerId,
+                    channelId: effectiveActiveChannel.id,
+                    messageId: msgId,
+                    emoji,
+                  });
                 }}
                 onClickAuthor={(authorUid) => {
                   const user = effectiveUsersByUid[authorUid];
@@ -1514,6 +1053,7 @@ function VesperPlatform() {
                 channel={effectiveActiveChannel}
                 currentUser={effectivePublicProfile}
                 isJoined={rtc.activeRoom?.channelId === effectiveActiveChannel.id}
+                livekitActive={rtc.livekitActive}
                 peers={rtc.peers}
                 rosterPeers={voiceRoster[effectiveActiveChannel.id] || []}
                 remoteMedia={rtc.remoteMedia}
@@ -1528,17 +1068,19 @@ function VesperPlatform() {
                 localCamStream={rtc.localCamStream}
                 localScreenStream={rtc.localScreenStream}
                 onJoin={() =>
-                  rtc.joinRoom({
-                    serverId: effectiveActiveChannel.serverId,
-                    channelId: effectiveActiveChannel.id,
-                    channelName: effectiveActiveChannel.name,
-                    channelType: effectiveActiveChannel.type as 'voice' | 'video',
+                  withMediaConsent(() => {
+                    rtc.joinRoom({
+                      serverId: effectiveActiveChannel.serverId,
+                      channelId: effectiveActiveChannel.id,
+                      channelName: effectiveActiveChannel.name,
+                      channelType: effectiveActiveChannel.type as 'voice' | 'video',
+                    });
                   })
                 }
                 onLeave={rtc.leaveRoom}
                 onToggleMic={rtc.toggleMic}
                 onToggleCam={rtc.toggleCamera}
-                onStartScreenShare={() => rtc.startScreenShare()}
+                onStartScreenShare={() => withMediaConsent(() => rtc.startScreenShare())}
                 onStopScreenShare={rtc.stopScreenShare}
                 onSetPeerVolume={rtc.setVolumeForPeer}
                 onClearError={rtc.clearMediaError}
@@ -1563,18 +1105,18 @@ function VesperPlatform() {
       {/* Real-Time Toast Notifications */}
       {toasts.length > 0 && (
         <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 w-80 max-w-[calc(100vw-2rem)] pointer-events-none">
-          {toasts.map((t) => (
+          {toasts.map((toast) => (
             <div
-              key={t.id}
+              key={toast.id}
               className="pointer-events-auto rounded-xl border border-white/12 glass-elevated p-3.5 shadow-2xl flex items-start justify-between gap-3"
             >
               <div className="min-w-0">
-                <div className="text-xs font-semibold text-white truncate">{t.title}</div>
-                <div className="text-xs text-zinc-400 mt-0.5 leading-snug">{t.body}</div>
+                <div className="text-xs font-semibold text-white truncate">{toast.title}</div>
+                <div className="text-xs text-zinc-400 mt-0.5 leading-snug">{toast.body}</div>
               </div>
               <button
                 type="button"
-                onClick={() => setToasts((prev) => prev.filter((item) => item.id !== t.id))}
+                onClick={() => setToasts((prev) => prev.filter((item) => item.id !== toast.id))}
                 className="text-zinc-400 hover:text-white shrink-0"
               >
                 <X className="w-3.5 h-3.5" />
@@ -1585,68 +1127,83 @@ function VesperPlatform() {
       )}
 
       {/* Modals */}
+      {privacyOpen && <PrivacyPolicyModal onClose={() => setPrivacyOpen(false)} />}
+
+      {pendingMediaAction && (
+        <MediaConsentModal
+          onAccept={() => {
+            setMediaConsentGranted(true);
+            try {
+              sessionStorage.setItem(ZONE_MEDIA_CONSENT_KEY, 'true');
+            } catch {
+              // ignore storage errors
+            }
+            const action = pendingMediaAction;
+            setPendingMediaAction(null);
+            action();
+          }}
+          onDecline={() => setPendingMediaAction(null)}
+        />
+      )}
+
+      {publicRoomsOpen && (
+        <PublicRoomsModal
+          publicRooms={publicRooms}
+          joinedServerIds={effectiveServers.map((s) => s.id)}
+          onClose={() => setPublicRoomsOpen(false)}
+          onJoinPublicRoom={(srvId) => {
+            sendSignal({ type: 'instant:server-join', serverId: srvId });
+          }}
+          onSelectJoinedRoom={(srvId) => {
+            setActiveServerId(srvId);
+            setActiveMode('server');
+          }}
+        />
+      )}
+
       {userSettingsOpen && (
         <UserSettingsModal
           publicProfile={effectivePublicProfile}
-          privateProfile={effectivePrivateProfile}
+          privateProfile={fallbackPrivateProfile}
           onClose={() => setUserSettingsOpen(false)}
+          onOpenPrivacy={() => setPrivacyOpen(true)}
           onSave={async (updates) => {
-            if (isInstant) {
-              sendSignal({
-                type: 'instant:profile-update',
-                updates: {
-                  displayName: updates.displayName,
-                  username: updates.username,
-                  bio: updates.bio,
-                  customStatus: updates.customStatus,
-                  presence: updates.presence,
-                  avatarDataUrl: updates.avatarDataUrl,
-                },
-              });
-              setGuestNotificationsEnabled(updates.notificationsEnabled);
-              if (guestSession) {
-                const updatedSession: GuestSession = {
-                  uid: guestSession.uid,
-                  displayName: updates.displayName,
-                  username: updates.username,
-                };
-                setGuestSession(updatedSession);
-                try {
-                  sessionStorage.setItem(INSTANT_SESSION_KEY, JSON.stringify(updatedSession));
-                } catch {
-                  // ignore storage errors
-                }
-              }
-              return;
-            }
-            await updateUserPublicProfile(effectivePublicProfile.uid, {
+            sendSignal({
+              type: 'instant:profile-update',
+              updates: {
+                displayName: updates.displayName,
+                username: updates.username,
+                bio: updates.bio,
+                customStatus: updates.customStatus,
+                presence: updates.presence,
+                avatarDataUrl: updates.avatarDataUrl,
+              },
+            });
+            setNotificationsEnabled(updates.notificationsEnabled);
+            const updatedSession: ZoneSession = {
+              ...zoneSession,
               displayName: updates.displayName,
               username: updates.username,
-              bio: updates.bio,
-              customStatus: updates.customStatus,
-              presence: updates.presence,
               avatarDataUrl: updates.avatarDataUrl,
-            });
-            await updateUserPrivatePreferences(effectivePublicProfile.uid, {
-              notificationsEnabled: updates.notificationsEnabled,
-            });
+            };
+            setZoneSession(updatedSession);
+            try {
+              sessionStorage.setItem(ZONE_SESSION_KEY, JSON.stringify(updatedSession));
+            } catch {
+              // ignore storage errors
+            }
           }}
           onLogout={async () => {
             rtc.leaveRoom();
-            if (isInstant) {
-              try {
-                sessionStorage.removeItem(INSTANT_SESSION_KEY);
-              } catch {
-                // ignore storage errors
-              }
-              setGuestSession(null);
-              setActiveServerId(null);
-              setActiveChannelId(null);
-              setActiveDmPeerUid(null);
-              setUserSettingsOpen(false);
-              return;
+            try {
+              sessionStorage.removeItem(ZONE_SESSION_KEY);
+            } catch {
+              // ignore storage errors
             }
-            await signOut(auth);
+            setZoneSession(null);
+            setActiveServerId(null);
+            setActiveChannelId(null);
+            setActiveDmPeerUid(null);
             setUserSettingsOpen(false);
           }}
         />
@@ -1655,17 +1212,15 @@ function VesperPlatform() {
       {createServerOpen && (
         <CreateServerModal
           onClose={() => setCreateServerOpen(false)}
-          onCreate={async (data) => {
-            if (isInstant) {
-              sendSignal({ type: 'instant:server-create', ...data });
-              return;
-            }
-            const newId = await createServer({
-              ownerId: effectivePublicProfile.uid,
-              ...data,
-            });
-            setActiveServerId(newId);
-            setActiveMode('server');
+          onCreate={async (data: {
+            name: string;
+            description: string;
+            iconColor: string;
+            visibility: RoomVisibility;
+            retention: MessageRetention;
+            clearOnClose: boolean;
+          }) => {
+            sendSignal({ type: 'instant:server-create', ...data });
           }}
         />
       )}
@@ -1674,13 +1229,7 @@ function VesperPlatform() {
         <JoinServerModal
           onClose={() => setJoinServerOpen(false)}
           onJoin={async (code) => {
-            if (isInstant) {
-              sendSignal({ type: 'instant:server-join', inviteCode: code });
-              return;
-            }
-            const joinedId = await joinServerByInviteCode(code, effectivePublicProfile.uid);
-            setActiveServerId(joinedId);
-            setActiveMode('server');
+            sendSignal({ type: 'instant:server-join', inviteCode: code });
           }}
         />
       )}
@@ -1689,32 +1238,21 @@ function VesperPlatform() {
         <ServerSettingsModal
           server={activeServer}
           friends={acceptedFriendProfiles}
+          isOwner={userRoleInServer === 'owner'}
           onClose={() => setServerSettingsOpen(false)}
           onSave={async (updates) => {
-            if (isInstant) {
-              sendSignal({ type: 'instant:server-update', serverId: activeServer.id, ...updates });
-            } else {
-              await updateServerInfo(activeServer.id, updates);
-            }
+            sendSignal({ type: 'instant:server-update', serverId: activeServer.id, ...updates });
           }}
           onInviteFriend={async (friendUid) => {
-            if (isInstant) {
-              sendSignal({
-                type: 'instant:invite-notify',
-                recipientId: friendUid,
-                serverId: activeServer.id,
-              });
-              return;
-            }
-            await createNotification({
+            sendSignal({
+              type: 'instant:invite-notify',
               recipientId: friendUid,
-              senderId: effectivePublicProfile.uid,
-              senderName: effectivePublicProfile.displayName,
-              type: 'invite',
-              title: `Convite para ${activeServer.name}`,
-              body: `Use o código ${activeServer.inviteCode} para entrar na comunidade.`,
-              linkServerId: activeServer.id,
+              serverId: activeServer.id,
             });
+          }}
+          onCloseRoom={async () => {
+            rtc.leaveRoom();
+            sendSignal({ type: 'instant:server-close', serverId: activeServer.id });
           }}
         />
       )}
@@ -1724,23 +1262,15 @@ function VesperPlatform() {
           initial={categoryModalState.editing}
           onClose={() => setCategoryModalState({ open: false, editing: null })}
           onSubmit={async (name) => {
-            if (isInstant) {
-              if (categoryModalState.editing) {
-                sendSignal({
-                  type: 'instant:category-update',
-                  serverId: activeServerId,
-                  categoryId: categoryModalState.editing.id,
-                  name,
-                });
-              } else {
-                sendSignal({ type: 'instant:category-create', serverId: activeServerId, name });
-              }
-              return;
-            }
             if (categoryModalState.editing) {
-              await updateCategory(activeServerId, categoryModalState.editing.id, name);
+              sendSignal({
+                type: 'instant:category-update',
+                serverId: activeServerId,
+                categoryId: categoryModalState.editing.id,
+                name,
+              });
             } else {
-              await createCategory(activeServerId, name, effectiveCategories.length);
+              sendSignal({ type: 'instant:category-create', serverId: activeServerId, name });
             }
           }}
         />
@@ -1762,39 +1292,24 @@ function VesperPlatform() {
             type: ChannelType;
             categoryId: string;
           }) => {
-            if (isInstant) {
-              if (channelModalState.editing) {
-                sendSignal({
-                  type: 'instant:channel-update',
-                  serverId: activeServerId,
-                  channelId: channelModalState.editing.id,
-                  name: data.name,
-                  topic: data.topic,
-                  channelType: data.type,
-                  categoryId: data.categoryId,
-                });
-              } else {
-                sendSignal({
-                  type: 'instant:channel-create',
-                  serverId: activeServerId,
-                  categoryId: data.categoryId,
-                  name: data.name,
-                  topic: data.topic,
-                  channelType: data.type,
-                });
-              }
-              return;
-            }
             if (channelModalState.editing) {
-              await updateChannel(activeServerId, channelModalState.editing.id, data);
+              sendSignal({
+                type: 'instant:channel-update',
+                serverId: activeServerId,
+                channelId: channelModalState.editing.id,
+                name: data.name,
+                topic: data.topic,
+                channelType: data.type,
+                categoryId: data.categoryId,
+              });
             } else {
-              await createChannel({
+              sendSignal({
+                type: 'instant:channel-create',
                 serverId: activeServerId,
                 categoryId: data.categoryId,
                 name: data.name,
                 topic: data.topic,
-                type: data.type,
-                position: effectiveChannels.filter((c) => c.categoryId === data.categoryId).length,
+                channelType: data.type,
               });
             }
           }}
@@ -1814,29 +1329,21 @@ function VesperPlatform() {
           onClose={() => setSelectedProfile(null)}
           onSendDm={() => handleOpenDmWith(selectedProfile.user.uid)}
           onAddFriend={async () => {
-            if (isInstant) {
-              sendSignal({
-                type: 'instant:friend-request',
-                targetUid: selectedProfile.user.uid,
-              });
-            } else {
-              await sendFriendRequest(effectivePublicProfile, selectedProfile.user);
-            }
+            sendSignal({
+              type: 'instant:friend-request',
+              targetUid: selectedProfile.user.uid,
+            });
           }}
           onToggleBlock={() => handleToggleBlock(selectedProfile.user.uid)}
           onToggleAdminRole={
             activeServerId
               ? async (nextRole) => {
-                  if (isInstant) {
-                    sendSignal({
-                      type: 'instant:member-role',
-                      serverId: activeServerId,
-                      targetUid: selectedProfile.user.uid,
-                      role: nextRole,
-                    });
-                  } else {
-                    await updateMemberRole(activeServerId, selectedProfile.user.uid, nextRole);
-                  }
+                  sendSignal({
+                    type: 'instant:member-role',
+                    serverId: activeServerId,
+                    targetUid: selectedProfile.user.uid,
+                    role: nextRole,
+                  });
                 }
               : undefined
           }
@@ -1848,25 +1355,15 @@ function VesperPlatform() {
           notifications={effectiveNotifications}
           onClose={() => setNotificationsOpen(false)}
           onMarkAllRead={async () => {
-            if (isInstant) {
-              sendSignal({ type: 'instant:notification-read', all: true });
-            } else {
-              await markAllNotificationsRead(
-                effectiveNotifications.filter((n) => !n.read).map((n) => n.id)
-              );
-            }
+            sendSignal({ type: 'instant:notification-read', all: true });
           }}
           onClickNotification={async (n) => {
             if (!n.read) {
-              if (isInstant) {
-                sendSignal({ type: 'instant:notification-read', notificationId: n.id });
-              } else {
-                await markNotificationRead(n.id);
-              }
+              sendSignal({ type: 'instant:notification-read', notificationId: n.id });
             }
             setNotificationsOpen(false);
             if (n.type === 'dm' && n.linkUserId) {
-              await handleOpenDmWith(n.linkUserId);
+              handleOpenDmWith(n.linkUserId);
             } else if (n.type === 'friend_request') {
               setActiveMode('home');
               setActiveDmPeerUid(null);
@@ -1885,7 +1382,9 @@ function VesperPlatform() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <VesperPlatform />
+      <I18nProvider>
+        <ZonePlatform />
+      </I18nProvider>
     </ErrorBoundary>
   );
 }

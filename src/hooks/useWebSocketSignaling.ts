@@ -22,6 +22,7 @@ export type SignalListener = (msg: Record<string, unknown>) => void;
 export interface InstantSnapshot {
   usersByUid: Record<string, UserPublic>;
   servers: ServerDoc[];
+  publicServers?: ServerDoc[];
   membersByServer: Record<string, ServerMember[]>;
   categoriesByServer: Record<string, CategoryDoc[]>;
   channelsByServer: Record<string, ChannelDoc[]>;
@@ -41,8 +42,21 @@ export function useWebSocketSignaling(params: {
   avatarDataUrl: string;
   presence: PresenceStatus;
   activeServerId: string | null;
+  initialInviteCode?: string;
   isInstant?: boolean;
   onAlert?: (alert: Omit<ToastAlert, 'id' | 'createdAt'>) => void;
+  alertText?: {
+    screenStartedTitle: string;
+    screenStartedBody: string;
+    screenStoppedTitle: string;
+    screenStoppedBody: string;
+    peerJoinedTitle: string;
+    peerJoinedBody: string;
+    fileExpiredTitle: string;
+    fileExpiredBody: string;
+    roomClosedTitle: string;
+    roomClosedBody: string;
+  };
 }) {
   const {
     uid,
@@ -51,8 +65,10 @@ export function useWebSocketSignaling(params: {
     avatarDataUrl,
     presence,
     activeServerId,
+    initialInviteCode,
     isInstant = false,
     onAlert,
+    alertText,
   } = params;
   const wsRef = useRef<WebSocket | null>(null);
   const localHubRef = useRef<LocalInstantHub | null>(null);
@@ -63,6 +79,7 @@ export function useWebSocketSignaling(params: {
   const hasOpenedRef = useRef(false);
 
   const [connected, setConnected] = useState(false);
+  const [usingStaticFallback, setUsingStaticFallback] = useState(false);
   const [livePresences, setLivePresences] = useState<Record<string, PresenceStatus>>({});
   const [voiceRoster, setVoiceRoster] = useState<Record<string, VoicePeer[]>>({});
   const [typingByChannel, setTypingByChannel] = useState<Record<string, Record<string, string>>>({});
@@ -90,18 +107,21 @@ export function useWebSocketSignaling(params: {
 
   const onAlertRef = useRef(onAlert);
   onAlertRef.current = onAlert;
+  const alertTextRef = useRef(alertText);
+  alertTextRef.current = alertText;
 
   const handleIncomingMessage = useCallback(
     (msg: Record<string, unknown>) => {
       const type = msg.type as string;
+      const labels = alertTextRef.current;
 
       if (type === 'instant:snapshot') {
         setInstantSnapshot(msg as unknown as InstantSnapshot);
       } else if (type === 'instant:error') {
         onAlertRef.current?.({
           type: 'error',
-          title: 'Aviso',
-          body: String(msg.message || 'Operação não pôde ser concluída.'),
+          title: 'ZONE',
+          body: String(msg.message || 'Action could not be completed.'),
         });
       } else if (type === 'presence:snapshot') {
         setLivePresences((msg.presences as Record<string, PresenceStatus>) || {});
@@ -136,34 +156,46 @@ export function useWebSocketSignaling(params: {
         }
       } else if (type === 'screen:started') {
         const sharerUid = String(msg.uid || '');
-        const sharerName = String(msg.displayName || 'Participante');
+        const sharerName = String(msg.displayName || 'Participant');
         if (sharerUid !== uid) {
           onAlertRef.current?.({
             type: 'screen_share',
-            title: 'Compartilhamento de tela iniciado',
-            body: `${sharerName} começou a transmitir a tela ao vivo.`,
+            title: labels?.screenStartedTitle || 'Screen share started',
+            body: `${sharerName} ${labels?.screenStartedBody || 'started sharing screen.'}`,
           });
         }
       } else if (type === 'screen:stopped') {
         const sharerUid = String(msg.uid || '');
-        const sharerName = String(msg.displayName || 'Participante');
+        const sharerName = String(msg.displayName || 'Participant');
         if (sharerUid !== uid) {
           onAlertRef.current?.({
             type: 'screen_share',
-            title: 'Compartilhamento encerrado',
-            body: `${sharerName} encerrou a transmissão da tela.`,
+            title: labels?.screenStoppedTitle || 'Screen share ended',
+            body: `${sharerName} ${labels?.screenStoppedBody || 'stopped sharing screen.'}`,
           });
         }
       } else if (type === 'room:peer-joined') {
         const peer = msg.peer as VoicePeer | undefined;
-        const channelName = String(msg.channelName || 'sala');
+        const channelName = String(msg.channelName || 'room');
         if (peer && peer.uid !== uid) {
           onAlertRef.current?.({
             type: 'voice_join',
-            title: 'Entrada na sala',
-            body: `${peer.displayName} entrou em ${channelName}.`,
+            title: labels?.peerJoinedTitle || 'Joined call',
+            body: `${peer.displayName} ${labels?.peerJoinedBody || 'joined'} ${channelName}.`,
           });
         }
+      } else if (type === 'zone:file-expired') {
+        onAlertRef.current?.({
+          type: 'info',
+          title: labels?.fileExpiredTitle || 'File expired',
+          body: labels?.fileExpiredBody || 'A temporary file expired after 5 minutes.',
+        });
+      } else if (type === 'zone:room-closed') {
+        onAlertRef.current?.({
+          type: 'info',
+          title: labels?.roomClosedTitle || 'Room closed',
+          body: `${String(msg.serverName || '')} — ${labels?.roomClosedBody || 'Closed.'}`,
+        });
       }
 
       for (const listener of listenersRef.current) {
@@ -194,6 +226,7 @@ export function useWebSocketSignaling(params: {
         onMessage: handleIncomingMessage,
       });
       localHubRef.current = hub;
+      setUsingStaticFallback(true);
       setConnected(true);
       if (activeServerId) {
         hub.send({ type: 'server:subscribe', serverId: activeServerId });
@@ -232,6 +265,7 @@ export function useWebSocketSignaling(params: {
         }
         hasOpenedRef.current = true;
         retryCountRef.current = 0;
+        setUsingStaticFallback(false);
         if (localHubRef.current) {
           localHubRef.current.dispose();
           localHubRef.current = null;
@@ -245,6 +279,7 @@ export function useWebSocketSignaling(params: {
             username,
             avatarDataUrl,
             presence,
+            inviteCode: initialInviteCode || '',
             isInstant,
           })
         );
@@ -319,6 +354,7 @@ export function useWebSocketSignaling(params: {
 
   return {
     connected,
+    usingStaticFallback,
     livePresences,
     voiceRoster,
     typingByChannel,

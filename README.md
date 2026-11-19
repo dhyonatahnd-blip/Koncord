@@ -1,46 +1,28 @@
-# Vesper — Plataforma de Comunicação em Tempo Real
+# ZONE — Temporary Social Communication
 
-Aplicação web completa de comunicação com salas de texto, voz, vídeo WebRTC, compartilhamento de tela em modo **Tela Cheia**, comunidades configuráveis, mensagens diretas e **Modo Instantâneo (sem conta e sem banco de dados)**.
+Plataforma de comunicação social temporária em tempo real sem cadastro tradicional (sem e-mail, sem senha e sem telefone), com suporte completo a **Português (pt-BR)**, **English (en)** e **Русский (ru)**, arquivos temporários com exclusão física obrigatória após **5 minutos**, voz, vídeo e compartilhamento de tela em alta definição.
 
-## Publicação no GitHub
+## Principais Recursos
 
-```bash
-git init
-git add .
-git commit -m "chore: prepare Vesper for GitHub and Netlify"
-git branch -M main
-git remote add origin https://github.com/SEU_USUARIO/SEU_REPOSITORIO.git
-git push -u origin main
-```
+- **Entrada sem cadastro**: Escolha apelido, envie fotografia ou escolha um avatar pronto, defina o idioma e entre imediatamente com identificador interno único (`#XXXX`).
+- **Salas Públicas e Privadas**: Crie salas com visibilidade pública ou privada, entre por código ou link compartilhável (`/?room=CODIGO`), configure retenção de texto (`5 min`, `15 min`, `1 hora` ou `até encerrar a sala`) e apague o histórico ao encerrar.
+- **Arquivos Temporários (5 minutos)**: Envie `JPG`, `PNG`, `WEBP`, `MP4`, `WEBM`, `PDF` e documentos autorizados (máximo 10 MB). Uma rotina automática no servidor (`server.ts` / Edge Function `cleanup-temp-files`) remove fisicamente o arquivo e o registro após 5 minutos, invalidando links expirados (`410 Gone`).
+- **Voz, Vídeo e Tela Cheia**: WebRTC com suporte opcional a LiveKit SFU (`/api/livekit/token`), controle individual de volume, compartilhamento de tela/janela/aba via `getDisplayMedia` e modo **TELA CHEIA** com proporção preservada (`object-contain`), controles ocultáveis e saída por `ESC`.
+- **GDPR / Privacidade na Europa**: Consentimento explícito antes de ativar microfone, câmera ou tela, política de privacidade detalhada e aviso transparente sobre metadados técnicos de rede.
 
-## Publicação no Netlify
+## Deploy no GitHub + Netlify + Backend
 
-O repositório já inclui `netlify.toml`, `public/_redirects` e `public/_headers` configurados automaticamente:
+1. **Frontend no Netlify**:
+   - Suba este repositório para o GitHub e conecte ao Netlify.
+   - `netlify.toml`, `public/_redirects` e `public/_headers` já estão configurados (`npm run build`, pasta `dist`, SPA redirect e `Permissions-Policy` para `display-capture`).
+   - Defina as variáveis de ambiente no Netlify (opcional se conectar a um backend externo):
+     - `VITE_API_URL` (ex: `https://seu-backend.fly.dev`)
+     - `VITE_WS_URL` (ex: `wss://seu-backend.fly.dev/ws`)
+     - `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` (opcional, projeto em região EU)
 
-- **Build command**: `npm run build`
-- **Publish directory**: `dist`
-- **Headers**: inclui `Permissions-Policy: display-capture=*, microphone=*, camera=*, fullscreen=*` para liberar captura de tela, áudio, câmera e tela cheia.
+2. **Backend WebSocket / Arquivos Temporários / LiveKit Token**:
+   - Execute `npm start` (`node server.ts` ou `tsx server.ts`) em qualquer provedor Node na Europa (Fly.io `fra`/`ams`, Railway EU, Render Frankfurt).
+   - Opcionalmente configure `LIVEKIT_URL`, `LIVEKIT_API_KEY` e `LIVEKIT_API_SECRET` apenas no backend para escalar chamadas SFU.
 
-### Passos no Netlify
-1. Acesse o painel do Netlify e selecione **Add new site → Import an existing project** conectado ao seu repositório no GitHub (ou faça upload manual da pasta `dist/` após rodar `npm run build`).
-2. As configurações de build serão lidas automaticamente de `netlify.toml`.
-3. Se usar login com **Google / E-mail (Firebase)**, adicione o domínio gerado pelo Netlify (ex.: `seu-site.netlify.app`) em:
-   **Firebase Console → Authentication → Settings → Authorized domains**.
-
-### Comunicação entre múltiplos dispositivos no Modo Instantâneo / WebRTC (Opcional)
-Como o Netlify hospeda arquivos estáticos (sem servidor WebSocket persistente), o modo estático ativa automaticamente sincronização local via navegador (`BroadcastChannel`).
-
-Para conectar **vários computadores/dispositivos diferentes** no Modo Instantâneo e na sinalização WebRTC de voz/vídeo/tela usando o site no Netlify:
-1. Hospede o arquivo `server.ts` em um serviço Node.js com suporte a WebSocket (ex.: Render, Railway ou Fly.io) usando o comando `npm start`.
-2. Nas variáveis de ambiente do Netlify (**Site configuration → Environment variables**), defina:
-   `VITE_WS_URL=wss://SEU-SERVIDOR.onrender.com/ws`
-3. Faça um novo deploy no Netlify.
-
-## Desenvolvimento Local
-
-```bash
-npm install
-npm run dev
-```
-
-O servidor local iniciará na porta `3000` com interface React + Vite e sinalização WebSocket integrada em `/ws`.
+3. **Supabase EU (Opcional)**:
+   - Aplique `supabase/migrations/001_zone_eu.sql` e implante `supabase/functions/cleanup-temp-files/index.ts` com agendamento a cada minuto.

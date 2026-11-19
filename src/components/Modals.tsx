@@ -5,12 +5,18 @@ import {
   Camera,
   Check,
   Copy,
+  Globe,
   Hash,
+  Link2,
+  Lock,
   LogOut,
   MessageSquare,
   Shield,
+  ShieldCheck,
   ShieldOff,
+  Trash2,
   UserPlus,
+  Users,
   Video,
   Volume2,
   X,
@@ -19,13 +25,17 @@ import {
   CategoryDoc,
   ChannelDoc,
   ChannelType,
+  LanguageCode,
+  MessageRetention,
   NotificationItem,
   PresenceStatus,
+  RoomVisibility,
   ServerDoc,
   ServerRole,
   UserPrivate,
   UserPublic,
 } from '../types';
+import { useI18n } from '../i18n/I18nContext';
 import { FIELD_LIMITS, fileToCompressedDataUrl } from '../lib/validation';
 import { Avatar, presenceLabel } from './Avatar';
 
@@ -44,14 +54,14 @@ const ModalFrame: React.FC<{
       className="w-full max-w-lg rounded-2xl border border-white/12 glass-elevated shadow-2xl overflow-hidden"
     >
       <div className="px-6 py-4 border-b border-white/8 flex items-center justify-between gap-4">
-        <div>
-          <h3 className="font-display text-base font-semibold text-white">{title}</h3>
-          {subtitle && <p className="text-xs text-zinc-400 mt-0.5">{subtitle}</p>}
+        <div className="min-w-0">
+          <h3 className="font-display text-base font-semibold text-white truncate">{title}</h3>
+          {subtitle && <p className="text-xs text-zinc-400 mt-0.5 truncate">{subtitle}</p>}
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10"
+          className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 shrink-0"
         >
           <X className="w-4 h-4" />
         </button>
@@ -65,6 +75,7 @@ export const UserSettingsModal: React.FC<{
   publicProfile: UserPublic;
   privateProfile: UserPrivate;
   onClose: () => void;
+  onOpenPrivacy: () => void;
   onSave: (updates: {
     displayName: string;
     username: string;
@@ -75,7 +86,8 @@ export const UserSettingsModal: React.FC<{
     notificationsEnabled: boolean;
   }) => Promise<void>;
   onLogout: () => Promise<void>;
-}> = ({ publicProfile, privateProfile, onClose, onSave, onLogout }) => {
+}> = ({ publicProfile, privateProfile, onClose, onOpenPrivacy, onSave, onLogout }) => {
+  const { lang, setLang, t } = useI18n();
   const [displayName, setDisplayName] = useState(publicProfile.displayName);
   const [username, setUsername] = useState(publicProfile.username);
   const [bio, setBio] = useState(publicProfile.bio);
@@ -97,7 +109,7 @@ export const UserSettingsModal: React.FC<{
       const res = await fileToCompressedDataUrl(file, FIELD_LIMITS.AVATAR_DATA_URL_MAX, 512);
       setAvatarDataUrl(res.dataUrl);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao processar imagem.');
+      setError(err instanceof Error ? err.message : t.tempFileOpenError);
     }
   };
 
@@ -117,7 +129,7 @@ export const UserSettingsModal: React.FC<{
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao salvar perfil.');
+      setError(err instanceof Error ? err.message : t.tempFileOpenError);
     } finally {
       setBusy(false);
     }
@@ -125,8 +137,8 @@ export const UserSettingsModal: React.FC<{
 
   return (
     <ModalFrame
-      title="Configurações da Conta"
-      subtitle={`Conectado como ${privateProfile.email}`}
+      title={t.accountSettingsTitle}
+      subtitle={`${t.sessionTagLabel}: ${publicProfile.tag || ''} · ${publicProfile.uid}`}
       onClose={onClose}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -136,21 +148,36 @@ export const UserSettingsModal: React.FC<{
           </div>
         )}
 
+        <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-white/[0.03] border border-white/8">
+          <div className="flex items-center gap-2 text-xs font-medium text-zinc-300">
+            <Globe className="w-4 h-4 text-blue-400" />
+            <span>{t.languageLabel}</span>
+          </div>
+          <select
+            value={lang}
+            onChange={(e) => setLang(e.target.value as LanguageCode)}
+            className="px-3 py-1.5 rounded-lg bg-[#151720] border border-white/10 text-xs text-white"
+          >
+            <option value="pt-BR">Português (BR)</option>
+            <option value="en">English</option>
+            <option value="ru">Русский</option>
+          </select>
+        </div>
+
         <div className="flex items-center gap-4">
-          <Avatar name={displayName || 'U'} src={avatarDataUrl} size="xl" presence={presence} />
+          <Avatar name={displayName || 'Z'} src={avatarDataUrl} size="xl" presence={presence} />
           <div className="space-y-2">
             <label className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-xs font-medium text-white cursor-pointer transition-colors">
               <Camera className="w-3.5 h-3.5" />
-              Alterar foto de perfil
+              {t.uploadPhoto}
               <input type="file" accept="image/*" onChange={handleAvatarFile} className="hidden" />
             </label>
-            <p className="text-[11px] text-zinc-500">JPG, PNG ou WebP redimensionado automaticamente.</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">Nome de exibição</label>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">{t.displayNameLabel}</label>
             <input
               type="text"
               required
@@ -161,7 +188,7 @@ export const UserSettingsModal: React.FC<{
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">Usuário (@)</label>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">{t.usernameLabel}</label>
             <input
               type="text"
               required
@@ -177,35 +204,34 @@ export const UserSettingsModal: React.FC<{
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">Status personalizado</label>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">{t.customStatusLabel}</label>
             <input
               type="text"
               maxLength={FIELD_LIMITS.CUSTOM_STATUS_MAX}
               value={customStatus}
               onChange={(e) => setCustomStatus(e.target.value)}
-              placeholder="Ex: Em reunião de design"
               className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">Presença</label>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">{t.presenceLabel}</label>
             <select
               value={presence}
               onChange={(e) => setPresence(e.target.value as PresenceStatus)}
               className="w-full px-3 py-2 rounded-xl bg-[#151720] border border-white/10 text-sm text-white"
             >
-              <option value="online">Disponível</option>
-              <option value="idle">Ausente</option>
-              <option value="dnd">Ocupado</option>
-              <option value="invisible">Invisível</option>
+              <option value="online">{t.online}</option>
+              <option value="idle">{t.idle}</option>
+              <option value="dnd">{t.dnd}</option>
+              <option value="invisible">{t.invisible}</option>
             </select>
           </div>
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1">Biografia</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">{t.bioLabel}</label>
           <textarea
-            rows={3}
+            rows={2}
             maxLength={FIELD_LIMITS.BIO_MAX}
             value={bio}
             onChange={(e) => setBio(e.target.value)}
@@ -214,18 +240,26 @@ export const UserSettingsModal: React.FC<{
         </div>
 
         <label className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-white/[0.03] border border-white/8 cursor-pointer">
-          <span className="text-xs text-zinc-200">Receber alertas de notificações em tempo real</span>
+          <span className="text-xs text-zinc-200">{t.notificationsToggle}</span>
           <input
             type="checkbox"
             checked={notificationsEnabled}
             onChange={(e) => setNotificationsEnabled(e.target.checked)}
-            className="accent-indigo-500 w-4 h-4"
+            className="accent-blue-500 w-4 h-4"
           />
         </label>
 
-        <div className="px-3.5 py-2.5 rounded-xl bg-white/[0.02] border border-white/6 text-[11px] text-zinc-400 leading-relaxed">
-          Privacidade e RGPD (União Europeia): áudio, câmera e compartilhamento de tela são transmitidos em tempo real apenas aos participantes conectados na sala, sem gravação automática em servidor.
-        </div>
+        <button
+          type="button"
+          onClick={() => {
+            onClose();
+            onOpenPrivacy();
+          }}
+          className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 underline underline-offset-4"
+        >
+          <ShieldCheck className="w-3.5 h-3.5" />
+          {t.readPrivacyPolicy}
+        </button>
 
         <div className="pt-2 flex items-center justify-between gap-3 border-t border-white/8">
           <button
@@ -234,7 +268,7 @@ export const UserSettingsModal: React.FC<{
             className="px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center gap-1.5"
           >
             <LogOut className="w-3.5 h-3.5" />
-            Sair da conta
+            {t.exitSessionBtn}
           </button>
 
           <div className="flex items-center gap-2">
@@ -243,14 +277,14 @@ export const UserSettingsModal: React.FC<{
               onClick={onClose}
               className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-zinc-300"
             >
-              Cancelar
+              {t.cancelAction}
             </button>
             <button
               type="submit"
               disabled={busy}
-              className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-semibold"
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold"
             >
-              {busy ? 'Salvando...' : 'Salvar alterações'}
+              {busy ? t.saving : t.saveChangesBtn}
             </button>
           </div>
         </div>
@@ -284,42 +318,49 @@ export const ParticipantProfileModal: React.FC<{
   onToggleBlock,
   onToggleAdminRole,
 }) => {
+  const { t } = useI18n();
   const [feedback, setFeedback] = useState<string | null>(null);
   const isSelf = user.uid === currentUserUid;
 
   return (
-    <ModalFrame title={user.displayName} subtitle={`@${user.username}`} onClose={onClose}>
+    <ModalFrame
+      title={user.displayName}
+      subtitle={`@${user.username}${user.tag ? ` · ${user.tag}` : ''}`}
+      onClose={onClose}
+    >
       <div className="space-y-5">
         <div className="flex items-center gap-4">
           <Avatar name={user.displayName} src={user.avatarDataUrl} size="xl" presence={user.presence} />
           <div className="min-w-0">
-            <div className="text-base font-semibold text-white">{user.displayName}</div>
+            <div className="text-base font-semibold text-white">
+              {user.displayName}{' '}
+              {user.tag && <span className="text-xs font-mono text-zinc-400">{user.tag}</span>}
+            </div>
             <div className="text-xs text-zinc-400 mt-0.5">
-              {presenceLabel(user.presence)}
+              {presenceLabel(user.presence, t)}
               {user.customStatus ? ` · ${user.customStatus}` : ''}
             </div>
             {roleInServer && (
-              <div className="text-xs text-indigo-300 mt-1">
-                Cargo:{' '}
+              <div className="text-xs text-blue-300 mt-1">
                 {roleInServer === 'owner'
-                  ? 'Proprietário'
+                  ? t.ownerRole
                   : roleInServer === 'admin'
-                  ? 'Administrador'
-                  : 'Membro'}
+                  ? t.adminRole
+                  : t.memberRole}
               </div>
             )}
           </div>
         </div>
 
-        <div className="rounded-xl bg-white/[0.03] border border-white/8 p-4">
-          <div className="text-[11px] font-medium text-zinc-500 mb-1">Biografia</div>
-          <p className="text-xs text-zinc-200 leading-relaxed">
-            {user.bio || 'Este participante ainda não adicionou uma biografia.'}
-          </p>
-        </div>
+        {user.bio && (
+          <div className="rounded-xl bg-white/[0.03] border border-white/8 p-4">
+            <div className="text-[11px] font-medium text-zinc-500 mb-1">{t.bioLabel}</div>
+            <p className="text-xs text-zinc-200 leading-relaxed">{user.bio}</p>
+          </div>
+        )}
 
         {feedback && (
-          <div className="px-3 py-2 rounded-xl bg-indigo-500/15 border border-indigo-400/30 text-xs text-indigo-200">
+          <div className="px-3 py-2 rounded-xl bg-blue-500/15 border border-blue-400/30 text-xs text-blue-200">
             {feedback}
           </div>
         )}
@@ -332,10 +373,10 @@ export const ParticipantProfileModal: React.FC<{
                 onClose();
                 onSendDm();
               }}
-              className="px-3.5 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-medium flex items-center gap-1.5"
+              className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-1.5"
             >
               <MessageSquare className="w-3.5 h-3.5" />
-              Mensagem Direta
+              {t.directMessageBtn}
             </button>
 
             {!isFriend && !isBlocked && (
@@ -344,15 +385,15 @@ export const ParticipantProfileModal: React.FC<{
                 onClick={async () => {
                   try {
                     await onAddFriend();
-                    setFeedback('Solicitação de amizade enviada.');
+                    setFeedback(t.friendRequestSent);
                   } catch (err) {
-                    setFeedback(err instanceof Error ? err.message : 'Erro ao enviar solicitação.');
+                    setFeedback(err instanceof Error ? err.message : t.tempFileOpenError);
                   }
                 }}
                 className="px-3.5 py-2 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-xs font-medium text-white flex items-center gap-1.5"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                Adicionar Amigo
+                {t.addFriendBtn}
               </button>
             )}
 
@@ -360,12 +401,12 @@ export const ParticipantProfileModal: React.FC<{
               type="button"
               onClick={async () => {
                 await onToggleBlock();
-                setFeedback(isBlocked ? 'Usuário desbloqueado.' : 'Usuário bloqueado.');
+                onClose();
               }}
               className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-rose-500/15 border border-white/10 text-xs text-zinc-300 hover:text-rose-200 flex items-center gap-1.5"
             >
               {isBlocked ? <ShieldOff className="w-3.5 h-3.5" /> : <Ban className="w-3.5 h-3.5" />}
-              {isBlocked ? 'Desbloquear' : 'Bloquear'}
+              {isBlocked ? t.unblockBtn : t.blockBtn}
             </button>
 
             {viewerRoleInServer === 'owner' && roleInServer !== 'owner' && onToggleAdminRole && (
@@ -374,14 +415,12 @@ export const ParticipantProfileModal: React.FC<{
                 onClick={async () => {
                   const next = roleInServer === 'admin' ? 'member' : 'admin';
                   await onToggleAdminRole(next);
-                  setFeedback(
-                    next === 'admin' ? 'Promovido a Administrador.' : 'Alterado para Membro.'
-                  );
+                  setFeedback(next === 'admin' ? t.adminRole : t.memberRole);
                 }}
                 className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-zinc-200 flex items-center gap-1.5"
               >
-                <Shield className="w-3.5 h-3.5 text-indigo-400" />
-                {roleInServer === 'admin' ? 'Remover Admin' : 'Promover a Admin'}
+                <Shield className="w-3.5 h-3.5 text-blue-400" />
+                {roleInServer === 'admin' ? t.removeAdminBtn : t.promoteAdminBtn}
               </button>
             )}
           </div>
@@ -393,19 +432,30 @@ export const ParticipantProfileModal: React.FC<{
 
 export const CreateServerModal: React.FC<{
   onClose: () => void;
-  onCreate: (data: { name: string; description: string; iconColor: string }) => Promise<void>;
+  onCreate: (data: {
+    name: string;
+    description: string;
+    iconColor: string;
+    visibility: RoomVisibility;
+    retention: MessageRetention;
+    clearOnClose: boolean;
+  }) => Promise<void>;
 }> = ({ onClose, onCreate }) => {
+  const { t } = useI18n();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [iconColor, setIconColor] = useState('#5B6AF0');
+  const [iconColor, setIconColor] = useState('#3B82F6');
+  const [visibility, setVisibility] = useState<RoomVisibility>('public');
+  const [retention, setRetention] = useState<MessageRetention>('until_close');
+  const [clearOnClose, setClearOnClose] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  const colors = ['#5B6AF0', '#38BDF8', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899'];
+  const colors = ['#3B82F6', '#7C3AED', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899'];
 
   return (
     <ModalFrame
-      title="Criar Nova Comunidade"
-      subtitle="Configure seu servidor com canais de texto, voz e vídeo."
+      title={t.createRoomTitle}
+      subtitle={t.createRoomSubtitle}
       onClose={onClose}
     >
       <form
@@ -414,7 +464,14 @@ export const CreateServerModal: React.FC<{
           if (!name.trim() || busy) return;
           setBusy(true);
           try {
-            await onCreate({ name: name.trim(), description: description.trim(), iconColor });
+            await onCreate({
+              name: name.trim(),
+              description: description.trim(),
+              iconColor,
+              visibility,
+              retention,
+              clearOnClose,
+            });
             onClose();
           } finally {
             setBusy(false);
@@ -423,32 +480,92 @@ export const CreateServerModal: React.FC<{
         className="space-y-4"
       >
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1.5">Nome do servidor</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-1.5">{t.roomNameLabel}</label>
           <input
             type="text"
             required
             maxLength={FIELD_LIMITS.SERVER_NAME_MAX}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Ex: Equipe Produto & Design"
+            placeholder={t.roomNamePlaceholder}
             className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white"
           />
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1.5">Descrição</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-1.5">{t.roomDescLabel}</label>
           <input
             type="text"
             maxLength={FIELD_LIMITS.SERVER_DESC_MAX}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Espaço para alinhamentos, chamadas e compartilhamento de tela"
+            placeholder={t.roomDescPlaceholder}
             className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white"
           />
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-2">Cor do emblema</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-2">{t.visibilityLabel}</label>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              onClick={() => setVisibility('public')}
+              className={`p-3 rounded-xl border text-left transition-colors ${
+                visibility === 'public'
+                  ? 'bg-blue-500/15 border-blue-400/50 text-white'
+                  : 'bg-white/[0.03] border-white/8 text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 text-xs font-semibold mb-1">
+                <Globe className="w-3.5 h-3.5 text-blue-400" />
+                {t.visibilityPublic}
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-snug">{t.visibilityPublicDesc}</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setVisibility('private')}
+              className={`p-3 rounded-xl border text-left transition-colors ${
+                visibility === 'private'
+                  ? 'bg-violet-500/15 border-violet-400/50 text-white'
+                  : 'bg-white/[0.03] border-white/8 text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 text-xs font-semibold mb-1">
+                <Lock className="w-3.5 h-3.5 text-violet-400" />
+                {t.visibilityPrivate}
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-snug">{t.visibilityPrivateDesc}</p>
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-1.5">{t.retentionLabel}</label>
+          <select
+            value={retention}
+            onChange={(e) => setRetention(e.target.value as MessageRetention)}
+            className="w-full px-3.5 py-2.5 rounded-xl bg-[#151720] border border-white/10 text-sm text-white"
+          >
+            <option value="until_close">{t.retentionUntilClose}</option>
+            <option value="5m">{t.retention5m}</option>
+            <option value="15m">{t.retention15m}</option>
+            <option value="60m">{t.retention60m}</option>
+          </select>
+        </div>
+
+        <label className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-white/[0.03] border border-white/8 cursor-pointer">
+          <span className="text-xs text-zinc-200">{t.clearOnCloseLabel}</span>
+          <input
+            type="checkbox"
+            checked={clearOnClose}
+            onChange={(e) => setClearOnClose(e.target.checked)}
+            className="accent-blue-500 w-4 h-4"
+          />
+        </label>
+
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-2">{t.emblemColorLabel}</label>
           <div className="flex items-center gap-2.5">
             {colors.map((c) => (
               <button
@@ -472,14 +589,14 @@ export const CreateServerModal: React.FC<{
             onClick={onClose}
             className="px-4 py-2 rounded-xl bg-white/5 text-xs text-zinc-300"
           >
-            Cancelar
+            {t.cancelAction}
           </button>
           <button
             type="submit"
             disabled={busy || !name.trim()}
-            className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-semibold"
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold"
           >
-            {busy ? 'Criando...' : 'Criar Servidor'}
+            {busy ? t.creating : t.createRoomSubmit}
           </button>
         </div>
       </form>
@@ -491,27 +608,35 @@ export const JoinServerModal: React.FC<{
   onClose: () => void;
   onJoin: (inviteCode: string) => Promise<void>;
 }> = ({ onClose, onJoin }) => {
+  const { t } = useI18n();
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const normalizeCode = (raw: string) => {
+    const match = raw.match(/[?&]room=([A-Za-z0-9_-]+)/i);
+    if (match && match[1]) return match[1].toUpperCase();
+    return raw.trim().toUpperCase();
+  };
+
   return (
     <ModalFrame
-      title="Entrar em uma Comunidade"
-      subtitle="Informe o código de convite compartilhado pelo administrador."
+      title={t.joinRoomTitle}
+      subtitle={t.joinRoomSubtitle}
       onClose={onClose}
     >
       <form
         onSubmit={async (e) => {
           e.preventDefault();
-          if (!code.trim() || busy) return;
+          const clean = normalizeCode(code);
+          if (!clean || busy) return;
           setBusy(true);
           setError(null);
           try {
-            await onJoin(code.trim());
+            await onJoin(clean);
             onClose();
           } catch (err) {
-            setError(err instanceof Error ? err.message : 'Convite inválido.');
+            setError(err instanceof Error ? err.message : t.tempFileOpenError);
           } finally {
             setBusy(false);
           }
@@ -524,14 +649,14 @@ export const JoinServerModal: React.FC<{
           </div>
         )}
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1.5">Código do convite</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-1.5">{t.inviteCodeLabel}</label>
           <input
             type="text"
             required
             value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-            placeholder="EX: A7K9M2P4"
-            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm font-mono text-white uppercase"
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="ZONEEU"
+            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm font-mono text-white"
           />
         </div>
         <div className="flex justify-end gap-2">
@@ -540,14 +665,14 @@ export const JoinServerModal: React.FC<{
             onClick={onClose}
             className="px-4 py-2 rounded-xl bg-white/5 text-xs text-zinc-300"
           >
-            Cancelar
+            {t.cancelAction}
           </button>
           <button
             type="submit"
             disabled={busy || !code.trim()}
-            className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-semibold"
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold"
           >
-            {busy ? 'Entrando...' : 'Entrar no Servidor'}
+            {busy ? t.joining : t.joinRoomSubmit}
           </button>
         </div>
       </form>
@@ -555,19 +680,119 @@ export const JoinServerModal: React.FC<{
   );
 };
 
+export const PublicRoomsModal: React.FC<{
+  publicRooms: ServerDoc[];
+  joinedServerIds: string[];
+  onClose: () => void;
+  onJoinPublicRoom: (serverId: string) => void;
+  onSelectJoinedRoom: (serverId: string) => void;
+}> = ({
+  publicRooms,
+  joinedServerIds,
+  onClose,
+  onJoinPublicRoom,
+  onSelectJoinedRoom,
+}) => {
+  const { t } = useI18n();
+
+  return (
+    <ModalFrame
+      title={t.publicRoomsTitle}
+      subtitle={t.publicRoomsSubtitle}
+      onClose={onClose}
+    >
+      {publicRooms.length === 0 ? (
+        <div className="py-10 text-center text-sm text-zinc-400">{t.publicRoomsEmpty}</div>
+      ) : (
+        <div className="space-y-3">
+          {publicRooms.map((room) => {
+            const isMember = joinedServerIds.includes(room.id);
+            return (
+              <div
+                key={room.id}
+                className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/8 hover:border-white/15 transition-colors"
+              >
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div
+                    className="w-11 h-11 rounded-xl flex items-center justify-center font-display font-bold text-sm text-white shrink-0 border border-white/10"
+                    style={{ backgroundColor: room.iconColor }}
+                  >
+                    {room.iconInitials}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-white truncate">{room.name}</span>
+                      <span className="text-[11px] font-mono text-zinc-500">{room.inviteCode}</span>
+                    </div>
+                    {room.description && (
+                      <p className="text-xs text-zinc-400 truncate mt-0.5">{room.description}</p>
+                    )}
+                    <div className="flex items-center gap-2 text-[11px] text-zinc-500 mt-1 tabular-nums">
+                      <Users className="w-3 h-3" />
+                      <span>{room.memberCount ?? 0}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isMember) {
+                      onSelectJoinedRoom(room.id);
+                    } else {
+                      onJoinPublicRoom(room.id);
+                    }
+                    onClose();
+                  }}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold shrink-0 whitespace-nowrap transition-colors ${
+                    isMember
+                      ? 'bg-white/8 hover:bg-white/15 text-zinc-200'
+                      : 'bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white'
+                  }`}
+                >
+                  {isMember ? t.alreadyMember : t.joinBtn}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </ModalFrame>
+  );
+};
+
 export const ServerSettingsModal: React.FC<{
   server: ServerDoc;
   friends: UserPublic[];
+  isOwner: boolean;
   onClose: () => void;
-  onSave: (updates: { name: string; description: string; iconDataUrl: string }) => Promise<void>;
+  onSave: (updates: {
+    name: string;
+    description: string;
+    iconDataUrl: string;
+    visibility: RoomVisibility;
+    retention: MessageRetention;
+    clearOnClose: boolean;
+  }) => Promise<void>;
   onInviteFriend: (friendUid: string) => Promise<void>;
-}> = ({ server, friends, onClose, onSave, onInviteFriend }) => {
+  onCloseRoom?: () => Promise<void>;
+}> = ({ server, friends, isOwner, onClose, onSave, onInviteFriend, onCloseRoom }) => {
+  const { t } = useI18n();
   const [name, setName] = useState(server.name);
   const [description, setDescription] = useState(server.description);
   const [iconDataUrl, setIconDataUrl] = useState(server.iconDataUrl);
+  const [visibility, setVisibility] = useState<RoomVisibility>(server.visibility || 'public');
+  const [retention, setRetention] = useState<MessageRetention>(server.retention || 'until_close');
+  const [clearOnClose, setClearOnClose] = useState(server.clearOnClose !== false);
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [invitedUids, setInvitedUids] = useState<Record<string, boolean>>({});
+
+  const shareUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/?room=${server.inviteCode}`
+      : `?room=${server.inviteCode}`;
 
   const handleIconPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -578,27 +803,43 @@ export const ServerSettingsModal: React.FC<{
   };
 
   return (
-    <ModalFrame title="Configurações da Comunidade" onClose={onClose}>
+    <ModalFrame title={t.roomSettingsTitle} onClose={onClose}>
       <div className="space-y-5">
-        <div className="rounded-xl bg-white/[0.03] border border-white/8 p-4 flex items-center justify-between gap-3">
-          <div>
-            <div className="text-xs text-zinc-400">Código de convite do servidor</div>
-            <div className="font-mono text-base font-semibold text-white mt-0.5">
-              {server.inviteCode}
+        <div className="rounded-xl bg-white/[0.03] border border-white/8 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs text-zinc-400">{t.inviteCodeLabel}</div>
+              <div className="font-mono text-base font-semibold text-white mt-0.5">
+                {server.inviteCode}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(server.inviteCode);
+                  setCopiedCode(true);
+                  setTimeout(() => setCopiedCode(false), 2000);
+                }}
+                className="px-3 py-2 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-zinc-200 text-xs font-medium flex items-center gap-1.5"
+              >
+                {copiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {t.copyInviteCode}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(shareUrl);
+                  setCopiedLink(true);
+                  setTimeout(() => setCopiedLink(false), 2000);
+                }}
+                className="px-3 py-2 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/30 text-blue-200 text-xs font-medium flex items-center gap-1.5"
+              >
+                {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Link2 className="w-3.5 h-3.5" />}
+                {t.copyInviteLink}
+              </button>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              navigator.clipboard.writeText(server.inviteCode);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 2000);
-            }}
-            className="px-3 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/30 text-indigo-200 text-xs font-medium flex items-center gap-1.5"
-          >
-            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-            {copied ? 'Copiado' : 'Copiar código'}
-          </button>
         </div>
 
         <form
@@ -606,7 +847,7 @@ export const ServerSettingsModal: React.FC<{
             e.preventDefault();
             setBusy(true);
             try {
-              await onSave({ name, description, iconDataUrl });
+              await onSave({ name, description, iconDataUrl, visibility, retention, clearOnClose });
               onClose();
             } finally {
               setBusy(false);
@@ -626,13 +867,13 @@ export const ServerSettingsModal: React.FC<{
               )}
             </div>
             <label className="px-3.5 py-2 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-xs font-medium text-white cursor-pointer">
-              Alterar ícone
+              {t.uploadPhoto}
               <input type="file" accept="image/*" onChange={handleIconPick} className="hidden" />
             </label>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">Nome</label>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">{t.roomNameLabel}</label>
             <input
               type="text"
               required
@@ -644,7 +885,7 @@ export const ServerSettingsModal: React.FC<{
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">Descrição</label>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">{t.roomDescLabel}</label>
             <input
               type="text"
               maxLength={FIELD_LIMITS.SERVER_DESC_MAX}
@@ -654,9 +895,46 @@ export const ServerSettingsModal: React.FC<{
             />
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">{t.visibilityLabel}</label>
+              <select
+                value={visibility}
+                onChange={(e) => setVisibility(e.target.value as RoomVisibility)}
+                className="w-full px-3 py-2 rounded-xl bg-[#151720] border border-white/10 text-xs text-white"
+              >
+                <option value="public">{t.visibilityPublic}</option>
+                <option value="private">{t.visibilityPrivate}</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">{t.retentionLabel}</label>
+              <select
+                value={retention}
+                onChange={(e) => setRetention(e.target.value as MessageRetention)}
+                className="w-full px-3 py-2 rounded-xl bg-[#151720] border border-white/10 text-xs text-white"
+              >
+                <option value="until_close">{t.retentionUntilClose}</option>
+                <option value="5m">{t.retention5m}</option>
+                <option value="15m">{t.retention15m}</option>
+                <option value="60m">{t.retention60m}</option>
+              </select>
+            </div>
+          </div>
+
+          <label className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-white/[0.03] border border-white/8 cursor-pointer">
+            <span className="text-xs text-zinc-200">{t.clearOnCloseLabel}</span>
+            <input
+              type="checkbox"
+              checked={clearOnClose}
+              onChange={(e) => setClearOnClose(e.target.checked)}
+              className="accent-blue-500 w-4 h-4"
+            />
+          </label>
+
           {friends.length > 0 && (
             <div className="pt-2 border-t border-white/8">
-              <div className="text-xs font-medium text-zinc-400 mb-2">Convidar amigos diretamente</div>
+              <div className="text-xs font-medium text-zinc-400 mb-2">{t.inviteFriendsLabel}</div>
               <div className="space-y-1.5 max-h-36 overflow-y-auto">
                 {friends.map((f) => (
                   <div
@@ -674,9 +952,9 @@ export const ServerSettingsModal: React.FC<{
                         await onInviteFriend(f.uid);
                         setInvitedUids((p) => ({ ...p, [f.uid]: true }));
                       }}
-                      className="px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/35 text-indigo-200 text-xs disabled:opacity-50"
+                      className="px-2.5 py-1 rounded-lg bg-blue-500/20 hover:bg-blue-500/35 text-blue-200 text-xs disabled:opacity-50"
                     >
-                      {invitedUids[f.uid] ? 'Enviado' : 'Convidar'}
+                      {invitedUids[f.uid] ? t.invitedBtn : t.inviteBtn}
                     </button>
                   </div>
                 ))}
@@ -684,21 +962,39 @@ export const ServerSettingsModal: React.FC<{
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-white/5 text-xs text-zinc-300"
-            >
-              Fechar
-            </button>
-            <button
-              type="submit"
-              disabled={busy}
-              className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-semibold"
-            >
-              Salvar
-            </button>
+          <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/8">
+            {isOwner && server.ownerId !== 'system' && onCloseRoom ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  await onCloseRoom();
+                  onClose();
+                }}
+                className="px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {t.closeRoom}
+              </button>
+            ) : (
+              <span />
+            )}
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-xl bg-white/5 text-xs text-zinc-300"
+              >
+                {t.closeBtn}
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold"
+              >
+                {t.saveAction}
+              </button>
+            </div>
           </div>
         </form>
       </div>
@@ -711,11 +1007,12 @@ export const CategoryModal: React.FC<{
   onClose: () => void;
   onSubmit: (name: string) => Promise<void>;
 }> = ({ initial, onClose, onSubmit }) => {
+  const { t } = useI18n();
   const [name, setName] = useState(initial?.name || '');
   const [busy, setBusy] = useState(false);
 
   return (
-    <ModalFrame title={initial ? 'Editar Categoria' : 'Nova Categoria'} onClose={onClose}>
+    <ModalFrame title={initial ? t.renameCategory : t.newCategory} onClose={onClose}>
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -731,23 +1028,22 @@ export const CategoryModal: React.FC<{
         className="space-y-4"
       >
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1">Nome da categoria</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">{t.categoryNameLabel}</label>
           <input
             type="text"
             required
             maxLength={FIELD_LIMITS.CATEGORY_NAME_MAX}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Ex: Projetos"
             className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white"
           />
         </div>
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl bg-white/5 text-xs text-zinc-300">
-            Cancelar
+            {t.cancelAction}
           </button>
-          <button type="submit" disabled={busy} className="px-4 py-2 rounded-xl bg-indigo-500 text-white text-xs font-semibold">
-            Salvar
+          <button type="submit" disabled={busy} className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold">
+            {t.saveAction}
           </button>
         </div>
       </form>
@@ -767,6 +1063,7 @@ export const ChannelModal: React.FC<{
     categoryId: string;
   }) => Promise<void>;
 }> = ({ initial, categories, defaultCategoryId, onClose, onSubmit }) => {
+  const { t } = useI18n();
   const [name, setName] = useState(initial?.name || '');
   const [topic, setTopic] = useState(initial?.topic || '');
   const [type, setType] = useState<ChannelType>(initial?.type || 'text');
@@ -774,7 +1071,7 @@ export const ChannelModal: React.FC<{
   const [busy, setBusy] = useState(false);
 
   return (
-    <ModalFrame title={initial ? 'Editar Canal' : 'Criar Canal ou Sala'} onClose={onClose}>
+    <ModalFrame title={initial ? t.editChannel : t.createChannel} onClose={onClose}>
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -790,13 +1087,13 @@ export const ChannelModal: React.FC<{
         className="space-y-4"
       >
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-2">Tipo de canal</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-2">{t.channelTypeLabel}</label>
           <div className="grid grid-cols-3 gap-2">
             {(
               [
-                { id: 'text', label: 'Texto', icon: Hash },
-                { id: 'voice', label: 'Voz', icon: Volume2 },
-                { id: 'video', label: 'Vídeo', icon: Video },
+                { id: 'text', label: t.channelTypeText, icon: Hash },
+                { id: 'voice', label: t.channelTypeVoice, icon: Volume2 },
+                { id: 'video', label: t.channelTypeVideo, icon: Video },
               ] as const
             ).map((opt) => {
               const Icon = opt.icon;
@@ -807,7 +1104,7 @@ export const ChannelModal: React.FC<{
                   onClick={() => setType(opt.id)}
                   className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-medium transition-colors ${
                     type === opt.id
-                      ? 'bg-indigo-500/20 border-indigo-400/50 text-white'
+                      ? 'bg-blue-500/20 border-blue-400/50 text-white'
                       : 'bg-white/[0.03] border-white/8 text-zinc-400 hover:text-white'
                   }`}
                 >
@@ -820,7 +1117,7 @@ export const ChannelModal: React.FC<{
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1">Categoria</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">{t.channelCategoryLabel}</label>
           <select
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
@@ -835,36 +1132,34 @@ export const ChannelModal: React.FC<{
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1">Nome</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">{t.channelNameLabel}</label>
           <input
             type="text"
             required
             maxLength={FIELD_LIMITS.CHANNEL_NAME_MAX}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder={type === 'text' ? 'ex: ideias-produto' : 'ex: Reunião Diária'}
             className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white"
           />
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1">Tópico / Descrição</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">{t.channelTopicLabel}</label>
           <input
             type="text"
             maxLength={FIELD_LIMITS.CHANNEL_TOPIC_MAX}
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
-            placeholder="Assunto principal do canal"
             className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white"
           />
         </div>
 
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl bg-white/5 text-xs text-zinc-300">
-            Cancelar
+            {t.cancelAction}
           </button>
-          <button type="submit" disabled={busy} className="px-4 py-2 rounded-xl bg-indigo-500 text-white text-xs font-semibold">
-            {initial ? 'Salvar Canal' : 'Criar Canal'}
+          <button type="submit" disabled={busy} className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold">
+            {t.saveAction}
           </button>
         </div>
       </form>
@@ -877,52 +1172,126 @@ export const NotificationsModal: React.FC<{
   onClose: () => void;
   onClickNotification: (n: NotificationItem) => Promise<void>;
   onMarkAllRead: () => Promise<void>;
-}> = ({ notifications, onClose, onClickNotification, onMarkAllRead }) => (
-  <ModalFrame
-    title="Central de Notificações"
-    subtitle="Atualizações em tempo real de mensagens, convites e salas"
-    onClose={onClose}
-  >
-    <div className="space-y-4">
-      {notifications.some((n) => !n.read) && (
-        <div className="flex justify-end">
+}> = ({ notifications, onClose, onClickNotification, onMarkAllRead }) => {
+  const { t } = useI18n();
+  return (
+    <ModalFrame
+      title={t.notifications}
+      onClose={onClose}
+    >
+      <div className="space-y-4">
+        {notifications.some((n) => !n.read) && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={onMarkAllRead}
+              className="text-xs text-blue-400 hover:text-blue-300 font-medium"
+            >
+              ✓
+            </button>
+          </div>
+        )}
+
+        {notifications.length === 0 ? (
+          <div className="py-10 text-center text-sm text-zinc-400">
+            <Bell className="w-6 h-6 mx-auto mb-2 text-zinc-600" />
+            {t.noParticipantsYet}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {notifications.map((n) => (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => onClickNotification(n)}
+                className={`w-full text-left p-3.5 rounded-xl border transition-colors ${
+                  n.read
+                    ? 'bg-white/[0.02] border-white/8 text-zinc-400 hover:bg-white/[0.04]'
+                    : 'bg-blue-500/10 border-blue-400/25 text-zinc-100 hover:bg-blue-500/15'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold">{n.title}</span>
+                  {!n.read && <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />}
+                </div>
+                {n.body && <p className="text-xs text-zinc-400 mt-1">{n.body}</p>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </ModalFrame>
+  );
+};
+
+export const PrivacyPolicyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { t } = useI18n();
+  return (
+    <ModalFrame
+      title={t.privacyPolicyTitle}
+      subtitle={t.privacyPolicySubtitle}
+      onClose={onClose}
+    >
+      <div className="space-y-4 text-xs text-zinc-300 leading-relaxed">
+        <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/8 space-y-1">
+          <h4 className="font-semibold text-white">{t.privacySection1Title}</h4>
+          <p className="text-zinc-400">{t.privacySection1Body}</p>
+        </div>
+        <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/8 space-y-1">
+          <h4 className="font-semibold text-white">{t.privacySection2Title}</h4>
+          <p className="text-zinc-400">{t.privacySection2Body}</p>
+        </div>
+        <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/8 space-y-1">
+          <h4 className="font-semibold text-white">{t.privacySection3Title}</h4>
+          <p className="text-zinc-400">{t.privacySection3Body}</p>
+        </div>
+        <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-400/25 space-y-1">
+          <h4 className="font-semibold text-blue-200">{t.privacySection4Title}</h4>
+          <p className="text-zinc-300">{t.privacySection4Body}</p>
+        </div>
+        <div className="flex justify-end pt-2">
           <button
             type="button"
-            onClick={onMarkAllRead}
-            className="text-xs text-indigo-400 hover:text-indigo-300 font-medium"
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl bg-white text-zinc-950 text-xs font-semibold"
           >
-            Marcar todas como lidas
+            {t.closeBtn}
           </button>
         </div>
-      )}
+      </div>
+    </ModalFrame>
+  );
+};
 
-      {notifications.length === 0 ? (
-        <div className="py-10 text-center text-sm text-zinc-400">
-          <Bell className="w-6 h-6 mx-auto mb-2 text-zinc-600" />
-          Você está em dia com todas as notificações.
+export const MediaConsentModal: React.FC<{
+  onAccept: () => void;
+  onDecline: () => void;
+}> = ({ onAccept, onDecline }) => {
+  const { t } = useI18n();
+  return (
+    <ModalFrame title={t.mediaConsentTitle} onClose={onDecline}>
+      <div className="space-y-4 text-xs text-zinc-300 leading-relaxed">
+        <p>{t.mediaConsentBody}</p>
+        <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-400/25 text-zinc-300">
+          {t.mediaConsentNotice}
         </div>
-      ) : (
-        <div className="space-y-2">
-          {notifications.map((n) => (
-            <button
-              key={n.id}
-              type="button"
-              onClick={() => onClickNotification(n)}
-              className={`w-full text-left p-3.5 rounded-xl border transition-colors ${
-                n.read
-                  ? 'bg-white/[0.02] border-white/8 text-zinc-400 hover:bg-white/[0.04]'
-                  : 'bg-indigo-500/10 border-indigo-400/25 text-zinc-100 hover:bg-indigo-500/15'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold">{n.title}</span>
-                {!n.read && <span className="w-2 h-2 rounded-full bg-indigo-400 shrink-0" />}
-              </div>
-              {n.body && <p className="text-xs text-zinc-400 mt-1">{n.body}</p>}
-            </button>
-          ))}
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onDecline}
+            className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-medium"
+          >
+            {t.mediaConsentDecline}
+          </button>
+          <button
+            type="button"
+            onClick={onAccept}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold"
+          >
+            {t.mediaConsentAccept}
+          </button>
         </div>
-      )}
-    </div>
-  </ModalFrame>
-);
+      </div>
+    </ModalFrame>
+  );
+};

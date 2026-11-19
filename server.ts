@@ -1,6 +1,9 @@
 import 'dotenv/config';
+import crypto from 'crypto';
 import express from 'express';
+import fs from 'fs';
 import http from 'http';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
@@ -8,6 +11,33 @@ import { WebSocketServer, WebSocket } from 'ws';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const TEMP_UPLOAD_DIR = path.join(os.tmpdir(), 'zone-temp-uploads');
+const TEMP_FILE_TTL_MS = 5 * 60 * 1000; // Mandatory 5-minute expiration
+const MAX_TEMP_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_UPLOADS_PER_USER_WINDOW = 5;
+const CLEANUP_INTERVAL_MS = 30 * 1000; // Runs every 30s (~<= 1 minute)
+
+const ALLOWED_EXTENSIONS = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+  'mp4',
+  'webm',
+  'pdf',
+  'txt',
+  'md',
+  'csv',
+  'json',
+  'docx',
+  'xlsx',
+  'zip',
+]);
+
+// Reset temporary upload storage on server start
+fs.rmSync(TEMP_UPLOAD_DIR, { recursive: true, force: true });
+fs.mkdirSync(TEMP_UPLOAD_DIR, { recursive: true });
 
 interface ClientMeta {
   ws: WebSocket;
@@ -35,13 +65,24 @@ interface RoomParticipantState {
   joinedAt: number;
 }
 
-const clients = new Map<WebSocket, ClientMeta>();
-const userSockets = new Map<string, Set<WebSocket>>();
-const voiceRooms = new Map<string, Map<string, RoomParticipantState>>();
+interface TempFileRecord {
+  id: string;
+  token: string;
+  diskPath: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploaderUid: string;
+  serverId: string;
+  channelId: string;
+  threadId: string;
+  uploadedAt: number;
+  expiresAt: number;
+}
 
-// --- Authoritative In-Memory Store for Account-Free / Instant Mode ---
 interface InstantUser {
   uid: string;
+  tag: string;
   displayName: string;
   username: string;
   bio: string;
@@ -61,6 +102,9 @@ interface InstantServer {
   iconDataUrl: string;
   ownerId: string;
   inviteCode: string;
+  visibility: 'public' | 'private';
+  retention: '5m' | '15m' | '60m' | 'until_close';
+  clearOnClose: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -100,15 +144,22 @@ interface InstantMessage {
   threadId?: string;
   authorId: string;
   authorName: string;
+  authorTag?: string;
   authorAvatar: string;
   content: string;
+  attachmentId?: string;
   attachmentName: string;
   attachmentType: string;
+  attachmentSize?: number;
   attachmentDataUrl: string;
+  attachmentUrl?: string;
+  attachmentExpiresAt?: number;
+  attachmentExpired?: boolean;
   replyToId: string;
   replyToAuthor: string;
   replyToSnippet: string;
   edited: boolean;
+  expiresAt?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -155,7 +206,16 @@ interface InstantNotification {
   createdAt: number;
 }
 
-const DEFAULT_SERVER_ID = 'srv_open_eu';
+const DEFAULT_SERVER_ID = 'srv_zone_eu';
+const SECONDARY_PUBLIC_SERVER_ID = 'srv_euro_design';
+
+const clients = new Map<WebSocket, ClientMeta>();
+const userSockets = new Map<string, Set<WebSocket>>();
+const voiceRooms = new Map<string, Map<string, RoomParticipantState>>();
+
+const tempFiles = new Map<string, TempFileRecord>();
+const userUploadTimestamps = new Map<string, number[]>();
+const userMessageTimestamps = new Map<string, number[]>();
 
 const instantUsers = new Map<string, InstantUser>();
 const instantServers = new Map<string, InstantServer>();
@@ -170,80 +230,122 @@ const instantDmMessages = new Map<string, InstantMessage[]>();
 const instantDmReactions = new Map<string, InstantReaction[]>();
 const instantNotifications = new Map<string, InstantNotification[]>();
 
-function seedDefaultInstantServer() {
-  if (instantServers.has(DEFAULT_SERVER_ID)) return;
+function seedDefaultZoneRooms() {
   const now = Date.now();
-  instantServers.set(DEFAULT_SERVER_ID, {
-    id: DEFAULT_SERVER_ID,
-    name: 'Vesper Europa',
-    description: 'Sala aberta em tempo real sem necessidade de cadastro ou banco de dados.',
-    iconColor: '#5B6AF0',
-    iconInitials: 'VE',
-    iconDataUrl: '',
-    ownerId: 'system',
-    inviteCode: 'VESPEREU',
-    createdAt: now,
-    updatedAt: now,
-  });
-  instantMembers.set(DEFAULT_SERVER_ID, []);
-  instantCategories.set(DEFAULT_SERVER_ID, [
-    {
-      id: 'cat_text_eu',
-      serverId: DEFAULT_SERVER_ID,
-      name: 'Canais de Texto',
-      position: 0,
+  if (!instantServers.has(DEFAULT_SERVER_ID)) {
+    instantServers.set(DEFAULT_SERVER_ID, {
+      id: DEFAULT_SERVER_ID,
+      name: 'ZONE Europa',
+      description: 'Lobby público temporário para conversas, chamadas e compartilhamento de tela.',
+      iconColor: '#3B82F6',
+      iconInitials: 'ZE',
+      iconDataUrl: '',
+      ownerId: 'system',
+      inviteCode: 'ZONEEU',
+      visibility: 'public',
+      retention: 'until_close',
+      clearOnClose: true,
       createdAt: now,
       updatedAt: now,
-    },
-    {
-      id: 'cat_media_eu',
-      serverId: DEFAULT_SERVER_ID,
-      name: 'Voz, Vídeo & Tela',
-      position: 1,
+    });
+    instantMembers.set(DEFAULT_SERVER_ID, []);
+    instantCategories.set(DEFAULT_SERVER_ID, [
+      { id: 'cat_text_eu', serverId: DEFAULT_SERVER_ID, name: 'Texto', position: 0, createdAt: now, updatedAt: now },
+      { id: 'cat_media_eu', serverId: DEFAULT_SERVER_ID, name: 'Voz, Vídeo & Tela', position: 1, createdAt: now, updatedAt: now },
+    ]);
+    instantChannels.set(DEFAULT_SERVER_ID, [
+      {
+        id: 'ch_geral_eu',
+        serverId: DEFAULT_SERVER_ID,
+        categoryId: 'cat_text_eu',
+        name: 'geral',
+        topic: 'Chat temporário em tempo real. Arquivos enviados expiram em 5 minutos.',
+        type: 'text',
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'ch_voz_eu',
+        serverId: DEFAULT_SERVER_ID,
+        categoryId: 'cat_media_eu',
+        name: 'Lounge de Voz',
+        topic: 'Chamada de voz em tempo real.',
+        type: 'voice',
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'ch_video_eu',
+        serverId: DEFAULT_SERVER_ID,
+        categoryId: 'cat_media_eu',
+        name: 'Sala Vídeo & Tela',
+        topic: 'Vídeo multi-participante e tela cheia sem cortes.',
+        type: 'video',
+        position: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+  }
+
+  if (!instantServers.has(SECONDARY_PUBLIC_SERVER_ID)) {
+    instantServers.set(SECONDARY_PUBLIC_SERVER_ID, {
+      id: SECONDARY_PUBLIC_SERVER_ID,
+      name: 'Euro Studio & Dev',
+      description: 'Sala pública para design, tecnologia e apresentações de tela.',
+      iconColor: '#7C3AED',
+      iconInitials: 'ES',
+      iconDataUrl: '',
+      ownerId: 'system',
+      inviteCode: 'EURODEV',
+      visibility: 'public',
+      retention: '60m',
+      clearOnClose: true,
       createdAt: now,
       updatedAt: now,
-    },
-  ]);
-  instantChannels.set(DEFAULT_SERVER_ID, [
-    {
-      id: 'ch_geral_eu',
-      serverId: DEFAULT_SERVER_ID,
-      categoryId: 'cat_text_eu',
-      name: 'geral',
-      topic: 'Conversa aberta em tempo real — envie mensagens, imagens, arquivos ou compartilhe sua tela.',
-      type: 'text',
-      position: 0,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: 'ch_voz_eu',
-      serverId: DEFAULT_SERVER_ID,
-      categoryId: 'cat_media_eu',
-      name: 'Lounge de Voz',
-      topic: 'Áudio em tempo real com controle individual de volume.',
-      type: 'voice',
-      position: 0,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: 'ch_video_eu',
-      serverId: DEFAULT_SERVER_ID,
-      categoryId: 'cat_media_eu',
-      name: 'Sala Vídeo & Tela',
-      topic: 'Vídeo e compartilhamento de tela em alta definição com modo TELA CHEIA.',
-      type: 'video',
-      position: 1,
-      createdAt: now,
-      updatedAt: now,
-    },
-  ]);
+    });
+    instantMembers.set(SECONDARY_PUBLIC_SERVER_ID, []);
+    instantCategories.set(SECONDARY_PUBLIC_SERVER_ID, [
+      { id: 'cat_text_dev', serverId: SECONDARY_PUBLIC_SERVER_ID, name: 'Texto', position: 0, createdAt: now, updatedAt: now },
+      { id: 'cat_media_dev', serverId: SECONDARY_PUBLIC_SERVER_ID, name: 'Review & Vídeo', position: 1, createdAt: now, updatedAt: now },
+    ]);
+    instantChannels.set(SECONDARY_PUBLIC_SERVER_ID, [
+      {
+        id: 'ch_geral_dev',
+        serverId: SECONDARY_PUBLIC_SERVER_ID,
+        categoryId: 'cat_text_dev',
+        name: 'showcase',
+        topic: 'Envie imagens, vídeos ou PDFs (autoexclusão em 5 min).',
+        type: 'text',
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'ch_video_dev',
+        serverId: SECONDARY_PUBLIC_SERVER_ID,
+        categoryId: 'cat_media_dev',
+        name: 'Screen Review',
+        topic: 'Compartilhe janela ou tela inteira em alta definição.',
+        type: 'video',
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+  }
 }
-seedDefaultInstantServer();
+seedDefaultZoneRooms();
 
 function makeId(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}_${Date.now().toString(36)}_${crypto.randomBytes(3).toString('hex')}`;
+}
+
+function makeTagFromUid(uid: string): string {
+  const hash = crypto.createHash('sha1').update(uid).digest('hex');
+  return `#${hash.slice(0, 4).toUpperCase()}`;
 }
 
 function makeInvite(): string {
@@ -255,76 +357,119 @@ function makeInvite(): string {
 
 function initialsFrom(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return 'VS';
+  if (parts.length === 0) return 'ZN';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-function buildInstantSnapshotForUser(uid: string) {
-  const userServers: InstantServer[] = [];
-  const membersMap: Record<string, InstantMember[]> = {};
-  const categoriesMap: Record<string, InstantCategory[]> = {};
-  const channelsMap: Record<string, InstantChannel[]> = {};
-  const messagesMap: Record<string, InstantMessage[]> = {};
-  const reactionsMap: Record<string, InstantReaction[]> = {};
+function retentionToMs(retention: InstantServer['retention']): number | null {
+  if (retention === '5m') return 5 * 60 * 1000;
+  if (retention === '15m') return 15 * 60 * 1000;
+  if (retention === '60m') return 60 * 60 * 1000;
+  return null;
+}
 
-  for (const [srvId, srv] of instantServers) {
-    const srvMembers = instantMembers.get(srvId) || [];
-    if (srvMembers.some((m) => m.uid === uid)) {
-      userServers.push(srv);
-      membersMap[srvId] = srvMembers;
-      categoriesMap[srvId] = instantCategories.get(srvId) || [];
-      const chs = instantChannels.get(srvId) || [];
-      channelsMap[srvId] = chs;
-      for (const ch of chs) {
-        messagesMap[ch.id] = instantMessages.get(ch.id) || [];
-        reactionsMap[ch.id] = instantReactions.get(ch.id) || [];
+function signLiveKitToken(params: {
+  apiKey: string;
+  apiSecret: string;
+  identity: string;
+  name: string;
+  room: string;
+}): string {
+  const now = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(
+    JSON.stringify({
+      exp: now + 3600,
+      iss: params.apiKey,
+      nbf: now,
+      sub: params.identity,
+      name: params.name,
+      video: {
+        roomJoin: true,
+        room: params.room,
+        canPublish: true,
+        canSubscribe: true,
+        canPublishData: true,
+      },
+    })
+  ).toString('base64url');
+  const sig = crypto
+    .createHmac('sha256', params.apiSecret)
+    .update(`${header}.${payload}`)
+    .digest('base64url');
+  return `${header}.${payload}.${sig}`;
+}
+
+function purgeExpiredTempFile(fileId: string, notifyClients = true): boolean {
+  const record = tempFiles.get(fileId);
+  if (!record) return false;
+  tempFiles.delete(fileId);
+  try {
+    if (fs.existsSync(record.diskPath)) {
+      fs.unlinkSync(record.diskPath);
+    }
+  } catch {
+    // ignore unlink error
+  }
+
+  for (const [, list] of instantMessages) {
+    for (const m of list) {
+      if (m.attachmentId === fileId) {
+        m.attachmentExpired = true;
+        m.attachmentUrl = '';
+        m.attachmentDataUrl = '';
+      }
+    }
+  }
+  for (const [, list] of instantDmMessages) {
+    for (const m of list) {
+      if (m.attachmentId === fileId) {
+        m.attachmentExpired = true;
+        m.attachmentUrl = '';
+        m.attachmentDataUrl = '';
       }
     }
   }
 
-  const usersObj: Record<string, InstantUser> = {};
-  for (const [uId, u] of instantUsers) {
-    usersObj[uId] = u;
+  if (notifyClients) {
+    broadcastAll({
+      type: 'zone:file-expired',
+      fileId,
+      channelId: record.channelId,
+      threadId: record.threadId,
+    });
   }
-
-  const userFriendships = Array.from(instantFriendships.values()).filter((f) =>
-    f.users.includes(uid)
-  );
-  const userDmThreads = Array.from(instantDmThreads.values()).filter((t) =>
-    t.participants.includes(uid)
-  );
-  const dmMsgs: Record<string, InstantMessage[]> = {};
-  const dmReacts: Record<string, InstantReaction[]> = {};
-  for (const t of userDmThreads) {
-    dmMsgs[t.id] = instantDmMessages.get(t.id) || [];
-    dmReacts[t.id] = instantDmReactions.get(t.id) || [];
-  }
-
-  return {
-    type: 'instant:snapshot',
-    usersByUid: usersObj,
-    servers: userServers,
-    membersByServer: membersMap,
-    categoriesByServer: categoriesMap,
-    channelsByServer: channelsMap,
-    messagesByChannel: messagesMap,
-    reactionsByChannel: reactionsMap,
-    friendships: userFriendships,
-    dmThreads: userDmThreads,
-    dmMessagesByThread: dmMsgs,
-    dmReactionsByThread: dmReacts,
-    notifications: instantNotifications.get(uid) || [],
-  };
+  return true;
 }
 
-function pushInstantSyncToUsers(targetUids?: string[]) {
-  for (const [sock, meta] of clients) {
-    if (!meta.isInstant || !meta.uid) continue;
-    if (targetUids && !targetUids.includes(meta.uid)) continue;
-    sendToSocket(sock, buildInstantSnapshotForUser(meta.uid));
+function runScheduledCleanup() {
+  const now = Date.now();
+  let changed = false;
+
+  for (const [fileId, record] of tempFiles) {
+    if (now >= record.expiresAt) {
+      purgeExpiredTempFile(fileId, true);
+      changed = true;
+    }
+  }
+
+  // Enforce configurable message retention
+  for (const [channelId, list] of instantMessages) {
+    const before = list.length;
+    const filtered = list.filter((m) => !m.expiresAt || now < m.expiresAt);
+    if (filtered.length !== before) {
+      instantMessages.set(channelId, filtered);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    pushInstantSyncToUsers();
   }
 }
+
+setInterval(runScheduledCleanup, CLEANUP_INTERVAL_MS);
 
 function sendToSocket(ws: WebSocket, payload: unknown) {
   if (ws.readyState === WebSocket.OPEN) {
@@ -426,25 +571,266 @@ function getOnlinePresenceSnapshot(): Record<string, string> {
   return snapshot;
 }
 
+function buildInstantSnapshotForUser(uid: string) {
+  const userServers: InstantServer[] = [];
+  const publicServers: Array<InstantServer & { memberCount: number }> = [];
+  const membersMap: Record<string, InstantMember[]> = {};
+  const categoriesMap: Record<string, InstantCategory[]> = {};
+  const channelsMap: Record<string, InstantChannel[]> = {};
+  const messagesMap: Record<string, InstantMessage[]> = {};
+  const reactionsMap: Record<string, InstantReaction[]> = {};
+
+  for (const [srvId, srv] of instantServers) {
+    const srvMembers = instantMembers.get(srvId) || [];
+    if (srv.visibility === 'public') {
+      publicServers.push({ ...srv, memberCount: srvMembers.length });
+    }
+    if (srvMembers.some((m) => m.uid === uid)) {
+      userServers.push({ ...srv, memberCount: srvMembers.length } as InstantServer & { memberCount: number });
+      membersMap[srvId] = srvMembers;
+      categoriesMap[srvId] = instantCategories.get(srvId) || [];
+      const chs = instantChannels.get(srvId) || [];
+      channelsMap[srvId] = chs;
+      for (const ch of chs) {
+        messagesMap[ch.id] = instantMessages.get(ch.id) || [];
+        reactionsMap[ch.id] = instantReactions.get(ch.id) || [];
+      }
+    }
+  }
+
+  const usersObj: Record<string, InstantUser> = {};
+  for (const [uId, u] of instantUsers) {
+    usersObj[uId] = u;
+  }
+
+  const userFriendships = Array.from(instantFriendships.values()).filter((f) =>
+    f.users.includes(uid)
+  );
+  const userDmThreads = Array.from(instantDmThreads.values()).filter((t) =>
+    t.participants.includes(uid)
+  );
+  const dmMsgs: Record<string, InstantMessage[]> = {};
+  const dmReacts: Record<string, InstantReaction[]> = {};
+  for (const t of userDmThreads) {
+    dmMsgs[t.id] = instantDmMessages.get(t.id) || [];
+    dmReacts[t.id] = instantDmReactions.get(t.id) || [];
+  }
+
+  return {
+    type: 'instant:snapshot',
+    usersByUid: usersObj,
+    servers: userServers,
+    publicServers,
+    membersByServer: membersMap,
+    categoriesByServer: categoriesMap,
+    channelsByServer: channelsMap,
+    messagesByChannel: messagesMap,
+    reactionsByChannel: reactionsMap,
+    friendships: userFriendships,
+    dmThreads: userDmThreads,
+    dmMessagesByThread: dmMsgs,
+    dmReactionsByThread: dmReacts,
+    notifications: instantNotifications.get(uid) || [],
+  };
+}
+
+function pushInstantSyncToUsers(targetUids?: string[]) {
+  for (const [sock, meta] of clients) {
+    if (!meta.isInstant || !meta.uid) continue;
+    if (targetUids && !targetUids.includes(meta.uid)) continue;
+    sendToSocket(sock, buildInstantSnapshotForUser(meta.uid));
+  }
+}
+
 async function startServer() {
   const app = express();
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server, path: '/ws' });
 
-  app.use((_req, res, next) => {
+  app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader(
       'Permissions-Policy',
       'display-capture=*, microphone=*, camera=*, fullscreen=*'
     );
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
     next();
   });
 
-  app.use(express.json({ limit: '2mb' }));
-
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true });
+    res.json({
+      ok: true,
+      service: 'zone-backend',
+      activeTempFiles: tempFiles.size,
+      livekitConfigured: Boolean(
+        process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET
+      ),
+    });
   });
+
+  // Temporary File Upload API (Mandatory 5-minute physical deletion)
+  app.post('/api/files/upload', express.json({ limit: '16mb' }), async (req, res) => {
+    try {
+      const { uid, serverId, channelId, threadId, fileName, mimeType, dataBase64 } = req.body || {};
+      const cleanUid = String(uid || '').trim();
+      const cleanName = path.basename(String(fileName || 'file')).slice(0, 140);
+      const ext = cleanName.split('.').pop()?.toLowerCase() || '';
+
+      if (!cleanUid) {
+        res.status(401).json({ error: 'Sessão não identificada.' });
+        return;
+      }
+      if (!ALLOWED_EXTENSIONS.has(ext)) {
+        res.status(400).json({ error: 'Formato de arquivo não permitido.' });
+        return;
+      }
+      if (!dataBase64 || typeof dataBase64 !== 'string') {
+        res.status(400).json({ error: 'Conteúdo do arquivo ausente.' });
+        return;
+      }
+
+      const now = Date.now();
+      const recentUploads = (userUploadTimestamps.get(cleanUid) || []).filter(
+        (ts) => now - ts < TEMP_FILE_TTL_MS
+      );
+      if (recentUploads.length >= MAX_UPLOADS_PER_USER_WINDOW) {
+        res.status(429).json({ error: 'Limite de envios por 5 minutos atingido.' });
+        return;
+      }
+
+      const buffer = Buffer.from(dataBase64, 'base64');
+      if (buffer.length === 0 || buffer.length > MAX_TEMP_FILE_BYTES) {
+        res.status(413).json({ error: 'Arquivo excede o limite de 10 MB.' });
+        return;
+      }
+
+      const fileId = makeId('tmp');
+      const token = crypto.randomBytes(24).toString('hex');
+      const diskPath = path.join(TEMP_UPLOAD_DIR, `${fileId}.${ext}`);
+      await fs.promises.writeFile(diskPath, buffer);
+
+      const expiresAt = now + TEMP_FILE_TTL_MS;
+      const record: TempFileRecord = {
+        id: fileId,
+        token,
+        diskPath,
+        fileName: cleanName,
+        mimeType: String(mimeType || 'application/octet-stream').slice(0, 100),
+        sizeBytes: buffer.length,
+        uploaderUid: cleanUid,
+        serverId: String(serverId || ''),
+        channelId: String(channelId || ''),
+        threadId: String(threadId || ''),
+        uploadedAt: now,
+        expiresAt,
+      };
+      tempFiles.set(fileId, record);
+      recentUploads.push(now);
+      userUploadTimestamps.set(cleanUid, recentUploads);
+
+      res.status(201).json({
+        id: fileId,
+        url: `/api/files/${fileId}?token=${token}`,
+        fileName: record.fileName,
+        mimeType: record.mimeType,
+        sizeBytes: record.sizeBytes,
+        uploadedAt: now,
+        expiresAt,
+      });
+    } catch (err) {
+      console.error('Upload error:', err);
+      res.status(500).json({ error: 'Falha ao armazenar arquivo temporário.' });
+    }
+  });
+
+  // Protected Temporary File Download / Stream Endpoint (Strictly blocks expired links)
+  app.get('/api/files/:fileId', (req, res) => {
+    const fileId = String(req.params.fileId || '');
+    const record = tempFiles.get(fileId);
+    if (!record) {
+      res.status(410).json({ error: 'Arquivo expirado e removido do servidor.' });
+      return;
+    }
+
+    const suppliedToken = String(req.query.token || '');
+    const expectedBuf = Buffer.from(record.token);
+    const suppliedBuf = Buffer.from(suppliedToken);
+    if (
+      expectedBuf.length !== suppliedBuf.length ||
+      !crypto.timingSafeEqual(expectedBuf, suppliedBuf)
+    ) {
+      res.status(403).json({ error: 'Token de acesso inválido.' });
+      return;
+    }
+
+    if (Date.now() >= record.expiresAt || !fs.existsSync(record.diskPath)) {
+      purgeExpiredTempFile(fileId, true);
+      pushInstantSyncToUsers();
+      res.status(410).json({ error: 'Arquivo expirado e removido permanentemente.' });
+      return;
+    }
+
+    const stat = fs.statSync(record.diskPath);
+    res.setHeader('Content-Type', record.mimeType || 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(record.fileName)}"`
+    );
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    const range = req.headers.range;
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+      if (isNaN(start) || start >= stat.size || end >= stat.size) {
+        res.status(416).end();
+        return;
+      }
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+      res.setHeader('Content-Length', end - start + 1);
+      fs.createReadStream(record.diskPath, { start, end }).pipe(res);
+      return;
+    }
+
+    res.setHeader('Content-Length', stat.size);
+    fs.createReadStream(record.diskPath).pipe(res);
+  });
+
+  // Backend-only LiveKit JWT Token Endpoint (never exposes API secret to frontend)
+  app.post('/api/livekit/token', express.json({ limit: '64kb' }), (req, res) => {
+    const lkUrl = process.env.LIVEKIT_URL?.trim();
+    const lkKey = process.env.LIVEKIT_API_KEY?.trim();
+    const lkSecret = process.env.LIVEKIT_API_SECRET?.trim();
+    if (!lkUrl || !lkKey || !lkSecret) {
+      res.json({ enabled: false });
+      return;
+    }
+    const uid = String(req.body?.uid || '').trim();
+    const displayName = String(req.body?.displayName || 'Participant').slice(0, 48);
+    const room = String(req.body?.room || '').trim();
+    if (!uid || !room) {
+      res.status(400).json({ error: 'uid and room are required' });
+      return;
+    }
+    const token = signLiveKitToken({
+      apiKey: lkKey,
+      apiSecret: lkSecret,
+      identity: uid,
+      name: displayName,
+      room,
+    });
+    res.json({ enabled: true, url: lkUrl, token });
+  });
+
+  app.use(express.json({ limit: '2mb' }));
 
   wss.on('connection', (ws) => {
     const meta: ClientMeta = {
@@ -480,7 +866,7 @@ async function startServer() {
         const uid = String(msg.uid || '');
         if (!uid) return;
         meta.uid = uid;
-        meta.displayName = String(msg.displayName || 'Usuário');
+        meta.displayName = String(msg.displayName || 'Visitante');
         meta.avatarDataUrl = String(msg.avatarDataUrl || '');
         meta.presence = (msg.presence as ClientMeta['presence']) || 'online';
         meta.isInstant = Boolean(msg.isInstant);
@@ -507,18 +893,19 @@ async function startServer() {
         if (meta.isInstant) {
           const now = Date.now();
           const existingUser = instantUsers.get(uid);
-          const cleanName = meta.displayName.slice(0, 48) || 'Convidado';
+          const cleanName = meta.displayName.slice(0, 32) || 'Visitante';
           const cleanUsername =
             String(msg.username || existingUser?.username || cleanName)
               .toLowerCase()
               .replace(/[^a-z0-9_.-]/g, '')
-              .slice(0, 32) || `convidado_${uid.slice(-4)}`;
+              .slice(0, 32) || `zone_${uid.slice(-4)}`;
 
           instantUsers.set(uid, {
             uid,
+            tag: existingUser?.tag || makeTagFromUid(uid),
             displayName: cleanName,
             username: cleanUsername,
-            bio: existingUser?.bio ?? 'Conectado via Modo Instantâneo Vesper.',
+            bio: existingUser?.bio ?? '',
             customStatus: existingUser?.customStatus ?? '',
             presence: meta.presence,
             avatarDataUrl: meta.avatarDataUrl || existingUser?.avatarDataUrl || '',
@@ -527,7 +914,10 @@ async function startServer() {
           });
 
           const openMembers = instantMembers.get(DEFAULT_SERVER_ID) || [];
-          if (!openMembers.some((m) => m.uid === uid)) {
+          const hasAnyMembership = Array.from(instantMembers.values()).some((mList) =>
+            mList.some((m) => m.uid === uid)
+          );
+          if (!hasAnyMembership && !openMembers.some((m) => m.uid === uid)) {
             openMembers.push({
               uid,
               serverId: DEFAULT_SERVER_ID,
@@ -537,6 +927,22 @@ async function startServer() {
             instantMembers.set(DEFAULT_SERVER_ID, openMembers);
           }
 
+          // Optional initial invite code passed from entry URL/form
+          const initialInvite = String(msg.inviteCode || '').trim().toUpperCase();
+          if (initialInvite) {
+            const invitedSrv = Array.from(instantServers.values()).find(
+              (s) => s.inviteCode === initialInvite
+            );
+            if (invitedSrv) {
+              const srvMembers = instantMembers.get(invitedSrv.id) || [];
+              if (!srvMembers.some((m) => m.uid === uid)) {
+                srvMembers.push({ uid, serverId: invitedSrv.id, role: 'member', joinedAt: now });
+                instantMembers.set(invitedSrv.id, srvMembers);
+              }
+              sendToSocket(ws, { type: 'instant:server-joined', serverId: invitedSrv.id });
+            }
+          }
+
           pushInstantSyncToUsers();
         }
         return;
@@ -544,20 +950,30 @@ async function startServer() {
 
       if (!meta.uid) return;
 
-      // --- Instant Mode Handlers ---
+      // --- Zone Session Handlers ---
       if (type === 'instant:profile-update') {
         const user = instantUsers.get(meta.uid);
         if (!user) return;
         const updates = (msg.updates as Partial<InstantUser>) || {};
-        if (updates.displayName !== undefined) user.displayName = String(updates.displayName).slice(0, 48) || user.displayName;
-        if (updates.username !== undefined) user.username = String(updates.username).toLowerCase().replace(/[^a-z0-9_.-]/g, '').slice(0, 32) || user.username;
+        if (updates.displayName !== undefined) {
+          user.displayName = String(updates.displayName).slice(0, 32) || user.displayName;
+        }
+        if (updates.username !== undefined) {
+          user.username =
+            String(updates.username)
+              .toLowerCase()
+              .replace(/[^a-z0-9_.-]/g, '')
+              .slice(0, 32) || user.username;
+        }
         if (updates.bio !== undefined) user.bio = String(updates.bio).slice(0, 240);
         if (updates.customStatus !== undefined) user.customStatus = String(updates.customStatus).slice(0, 80);
         if (updates.presence !== undefined) {
           user.presence = updates.presence;
           meta.presence = updates.presence;
         }
-        if (updates.avatarDataUrl !== undefined) user.avatarDataUrl = String(updates.avatarDataUrl).slice(0, 200000);
+        if (updates.avatarDataUrl !== undefined) {
+          user.avatarDataUrl = String(updates.avatarDataUrl).slice(0, 200000);
+        }
         user.updatedAt = Date.now();
         meta.displayName = user.displayName;
         meta.avatarDataUrl = user.avatarDataUrl;
@@ -568,9 +984,15 @@ async function startServer() {
       if (type === 'instant:server-create') {
         const now = Date.now();
         const serverId = makeId('srv');
-        const name = String(msg.name || 'Nova Comunidade').slice(0, 64);
+        const name = String(msg.name || 'Nova Sala').slice(0, 64);
         const description = String(msg.description || '').slice(0, 240);
-        const iconColor = String(msg.iconColor || '#5B6AF0');
+        const iconColor = String(msg.iconColor || '#3B82F6');
+        const visibility = msg.visibility === 'private' ? 'private' : 'public';
+        const retention: InstantServer['retention'] =
+          msg.retention === '5m' || msg.retention === '15m' || msg.retention === '60m'
+            ? msg.retention
+            : 'until_close';
+        const clearOnClose = msg.clearOnClose !== false;
         const inviteCode = makeInvite();
 
         instantServers.set(serverId, {
@@ -582,6 +1004,9 @@ async function startServer() {
           iconDataUrl: '',
           ownerId: meta.uid,
           inviteCode,
+          visibility,
+          retention,
+          clearOnClose,
           createdAt: now,
           updatedAt: now,
         });
@@ -589,24 +1014,57 @@ async function startServer() {
         const catTextId = makeId('cat');
         const catMediaId = makeId('cat');
         instantCategories.set(serverId, [
-          { id: catTextId, serverId, name: 'Canais de Texto', position: 0, createdAt: now, updatedAt: now },
+          { id: catTextId, serverId, name: 'Texto', position: 0, createdAt: now, updatedAt: now },
           { id: catMediaId, serverId, name: 'Voz, Vídeo & Tela', position: 1, createdAt: now, updatedAt: now },
         ]);
         instantChannels.set(serverId, [
-          { id: makeId('ch'), serverId, categoryId: catTextId, name: 'geral', topic: 'Conversas da comunidade', type: 'text', position: 0, createdAt: now, updatedAt: now },
-          { id: makeId('ch'), serverId, categoryId: catMediaId, name: 'Lounge de Voz', topic: 'Áudio em tempo real', type: 'voice', position: 0, createdAt: now, updatedAt: now },
-          { id: makeId('ch'), serverId, categoryId: catMediaId, name: 'Sala Vídeo & Tela', topic: 'Vídeo e compartilhamento de tela', type: 'video', position: 1, createdAt: now, updatedAt: now },
+          {
+            id: makeId('ch'),
+            serverId,
+            categoryId: catTextId,
+            name: 'geral',
+            topic: 'Chat temporário — arquivos expiram em 5 min.',
+            type: 'text',
+            position: 0,
+            createdAt: now,
+            updatedAt: now,
+          },
+          {
+            id: makeId('ch'),
+            serverId,
+            categoryId: catMediaId,
+            name: 'Voz',
+            topic: 'Áudio em tempo real',
+            type: 'voice',
+            position: 0,
+            createdAt: now,
+            updatedAt: now,
+          },
+          {
+            id: makeId('ch'),
+            serverId,
+            categoryId: catMediaId,
+            name: 'Vídeo & Tela',
+            topic: 'Câmera e compartilhamento de tela',
+            type: 'video',
+            position: 1,
+            createdAt: now,
+            updatedAt: now,
+          },
         ]);
         sendToSocket(ws, { type: 'instant:server-created', serverId });
-        pushInstantSyncToUsers([meta.uid]);
+        pushInstantSyncToUsers();
         return;
       }
 
       if (type === 'instant:server-join') {
         const code = String(msg.inviteCode || '').trim().toUpperCase();
-        const targetSrv = Array.from(instantServers.values()).find((s) => s.inviteCode === code);
-        if (!targetSrv) {
-          sendToSocket(ws, { type: 'instant:error', message: 'Código de convite não encontrado nesta sessão.' });
+        const serverIdParam = String(msg.serverId || '').trim();
+        const targetSrv = serverIdParam
+          ? instantServers.get(serverIdParam)
+          : Array.from(instantServers.values()).find((s) => s.inviteCode === code);
+        if (!targetSrv || (serverIdParam && targetSrv.visibility !== 'public')) {
+          sendToSocket(ws, { type: 'instant:error', message: 'Sala não encontrada ou convite inválido.' });
           return;
         }
         const list = instantMembers.get(targetSrv.id) || [];
@@ -615,7 +1073,7 @@ async function startServer() {
           instantMembers.set(targetSrv.id, list);
         }
         sendToSocket(ws, { type: 'instant:server-joined', serverId: targetSrv.id });
-        pushInstantSyncToUsers(list.map((m) => m.uid));
+        pushInstantSyncToUsers();
         return;
       }
 
@@ -631,8 +1089,18 @@ async function startServer() {
         }
         if (msg.description !== undefined) srv.description = String(msg.description).slice(0, 240);
         if (msg.iconDataUrl !== undefined) srv.iconDataUrl = String(msg.iconDataUrl).slice(0, 200000);
+        if (msg.visibility === 'public' || msg.visibility === 'private') srv.visibility = msg.visibility;
+        if (
+          msg.retention === '5m' ||
+          msg.retention === '15m' ||
+          msg.retention === '60m' ||
+          msg.retention === 'until_close'
+        ) {
+          srv.retention = msg.retention;
+        }
+        if (msg.clearOnClose !== undefined) srv.clearOnClose = Boolean(msg.clearOnClose);
         srv.updatedAt = Date.now();
-        pushInstantSyncToUsers(membersList.map((m) => m.uid));
+        pushInstantSyncToUsers();
         return;
       }
 
@@ -641,7 +1109,44 @@ async function startServer() {
         const membersList = instantMembers.get(serverId) || [];
         const filtered = membersList.filter((m) => m.uid !== meta.uid || m.role === 'owner');
         instantMembers.set(serverId, filtered);
-        pushInstantSyncToUsers([meta.uid, ...filtered.map((m) => m.uid)]);
+        pushInstantSyncToUsers();
+        return;
+      }
+
+      if (type === 'instant:server-close') {
+        const serverId = String(msg.serverId || '');
+        if (serverId === DEFAULT_SERVER_ID || serverId === SECONDARY_PUBLIC_SERVER_ID) {
+          sendToSocket(ws, { type: 'instant:error', message: 'Salas públicas do sistema não podem ser encerradas.' });
+          return;
+        }
+        const srv = instantServers.get(serverId);
+        if (!srv) return;
+        const membersList = instantMembers.get(serverId) || [];
+        const me = membersList.find((m) => m.uid === meta.uid);
+        if (!me || me.role !== 'owner') return;
+
+        // Purge all physical temporary files and messages in this room
+        const chs = instantChannels.get(serverId) || [];
+        for (const ch of chs) {
+          if (srv.clearOnClose) {
+            instantMessages.delete(ch.id);
+            instantReactions.delete(ch.id);
+          }
+          for (const [fileId, rec] of tempFiles) {
+            if (rec.channelId === ch.id || rec.serverId === serverId) {
+              purgeExpiredTempFile(fileId, true);
+            }
+          }
+        }
+        instantServers.delete(serverId);
+        instantMembers.delete(serverId);
+        instantCategories.delete(serverId);
+        instantChannels.delete(serverId);
+
+        for (const m of membersList) {
+          sendToUser(m.uid, { type: 'zone:room-closed', serverId, serverName: srv.name });
+        }
+        pushInstantSyncToUsers();
         return;
       }
 
@@ -738,27 +1243,49 @@ async function startServer() {
       if (type === 'instant:message-send') {
         const serverId = String(msg.serverId || '');
         const channelId = String(msg.channelId || '');
+        const srv = instantServers.get(serverId);
         const membersList = instantMembers.get(serverId) || [];
-        if (!membersList.some((m) => m.uid === meta.uid)) return;
+        if (!srv || !membersList.some((m) => m.uid === meta.uid)) return;
         const user = instantUsers.get(meta.uid);
         if (!user) return;
-        const arr = instantMessages.get(channelId) || [];
+
+        // Anti-spam throttle: max 12 messages per 10 seconds
         const now = Date.now();
+        const recentMsgs = (userMessageTimestamps.get(meta.uid) || []).filter(
+          (ts) => now - ts < 10_000
+        );
+        if (recentMsgs.length >= 12) {
+          sendToSocket(ws, { type: 'instant:error', message: 'Aguarde alguns segundos antes de enviar mais mensagens.' });
+          return;
+        }
+        recentMsgs.push(now);
+        userMessageTimestamps.set(meta.uid, recentMsgs);
+
+        const retentionMs = retentionToMs(srv.retention);
+        const arr = instantMessages.get(channelId) || [];
         arr.push({
           id: makeId('msg'),
           serverId,
           channelId,
           authorId: user.uid,
           authorName: user.displayName,
+          authorTag: user.tag,
           authorAvatar: user.avatarDataUrl,
           content: String(msg.content || '').slice(0, 4000),
+          attachmentId: msg.attachmentId ? String(msg.attachmentId) : undefined,
           attachmentName: String(msg.attachmentName || '').slice(0, 140),
-          attachmentType: String(msg.attachmentType || '').slice(0, 80),
+          attachmentType: String(msg.attachmentType || '').slice(0, 100),
+          attachmentSize: typeof msg.attachmentSize === 'number' ? msg.attachmentSize : undefined,
           attachmentDataUrl: String(msg.attachmentDataUrl || '').slice(0, 450000),
+          attachmentUrl: msg.attachmentUrl ? String(msg.attachmentUrl).slice(0, 400) : undefined,
+          attachmentExpiresAt:
+            typeof msg.attachmentExpiresAt === 'number' ? msg.attachmentExpiresAt : undefined,
+          attachmentExpired: false,
           replyToId: String(msg.replyToId || ''),
           replyToAuthor: String(msg.replyToAuthor || ''),
           replyToSnippet: String(msg.replyToSnippet || '').slice(0, 160),
           edited: false,
+          expiresAt: retentionMs ? now + retentionMs : undefined,
           createdAt: now,
           updatedAt: now,
         });
@@ -849,7 +1376,7 @@ async function startServer() {
           senderId: meta.uid,
           senderName: meta.displayName,
           type: 'friend_request',
-          title: 'Nova solicitação de amizade',
+          title: 'Nova solicitação de contato',
           body: `${meta.displayName} quer conectar-se com você.`,
           linkServerId: '',
           linkChannelId: '',
@@ -924,11 +1451,18 @@ async function startServer() {
           threadId,
           authorId: user.uid,
           authorName: user.displayName,
+          authorTag: user.tag,
           authorAvatar: user.avatarDataUrl,
           content,
+          attachmentId: msg.attachmentId ? String(msg.attachmentId) : undefined,
           attachmentName,
-          attachmentType: String(msg.attachmentType || '').slice(0, 80),
+          attachmentType: String(msg.attachmentType || '').slice(0, 100),
+          attachmentSize: typeof msg.attachmentSize === 'number' ? msg.attachmentSize : undefined,
           attachmentDataUrl: String(msg.attachmentDataUrl || '').slice(0, 450000),
+          attachmentUrl: msg.attachmentUrl ? String(msg.attachmentUrl).slice(0, 400) : undefined,
+          attachmentExpiresAt:
+            typeof msg.attachmentExpiresAt === 'number' ? msg.attachmentExpiresAt : undefined,
+          attachmentExpired: false,
           replyToId: String(msg.replyToId || ''),
           replyToAuthor: String(msg.replyToAuthor || ''),
           replyToSnippet: String(msg.replyToSnippet || '').slice(0, 160),
@@ -949,7 +1483,7 @@ async function startServer() {
           senderId: user.uid,
           senderName: user.displayName,
           type: 'dm',
-          title: `Mensagem privada de ${user.displayName}`,
+          title: `DM · ${user.displayName}`,
           body: preview,
           linkServerId: '',
           linkChannelId: '',
@@ -1013,7 +1547,7 @@ async function startServer() {
           senderName: meta.displayName,
           type: 'invite',
           title: `Convite para ${srv.name}`,
-          body: `Use o código ${srv.inviteCode} para entrar na comunidade.`,
+          body: `Código: ${srv.inviteCode}`,
           linkServerId: srv.id,
           linkChannelId: '',
           linkUserId: meta.uid,
@@ -1237,7 +1771,7 @@ async function startServer() {
 
   const PORT = Number(process.env.PORT) || 3000;
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Vesper server listening on http://0.0.0.0:${PORT}`);
+    console.log(`ZONE server listening on http://0.0.0.0:${PORT}`);
   });
 }
 

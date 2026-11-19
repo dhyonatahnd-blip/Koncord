@@ -1,33 +1,64 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
+  Clock,
   CornerUpLeft,
   Download,
   Edit3,
+  Eye,
+  EyeOff,
   FileText,
+  Film,
   Paperclip,
   SendHorizontal,
   Smile,
   Trash2,
   X,
 } from 'lucide-react';
-import { ChatMessage, MessageReaction, UserPublic } from '../types';
-import { FIELD_LIMITS, fileToCompressedDataUrl } from '../lib/validation';
+import { ChatMessage, LanguageCode, MessageReaction, UserPublic } from '../types';
+import {
+  ALLOWED_UPLOAD_EXTENSIONS,
+  FIELD_LIMITS,
+  fileToBase64Payload,
+  fileToCompressedDataUrl,
+  formatBytes,
+  formatRemainingMs,
+  getApiBaseUrl,
+  isAllowedTemporaryFile,
+  resolveAttachmentUrl,
+} from '../lib/validation';
+import { useI18n } from '../i18n/I18nContext';
 import { Avatar } from './Avatar';
 
 const QUICK_EMOJIS = ['👍', '❤️', '🔥', '🚀', '😂', '👏', '👀', '🎉', '✨', '💯'];
 
-function formatTimestamp(ts: unknown): string {
-  if (!ts) return 'Agora';
+export interface PendingAttachment {
+  id?: string;
+  name: string;
+  type: string;
+  size: number;
+  dataUrl: string;
+  url?: string;
+  expiresAt: number;
+}
+
+function formatTimestamp(ts: unknown, lang: LanguageCode): string {
+  const locale = lang === 'pt-BR' ? 'pt-BR' : lang === 'ru' ? 'ru-RU' : 'en-GB';
+  if (!ts) return '—';
   let date: Date;
   if (typeof ts === 'number') {
     date = new Date(ts);
-  } else if (typeof ts === 'object' && ts !== null && 'toDate' in ts && typeof (ts as { toDate: () => Date }).toDate === 'function') {
+  } else if (
+    typeof ts === 'object' &&
+    ts !== null &&
+    'toDate' in ts &&
+    typeof (ts as { toDate: () => Date }).toDate === 'function'
+  ) {
     date = (ts as { toDate: () => Date }).toDate();
   } else if (ts instanceof Date) {
     date = ts;
   } else {
-    return 'Agora';
+    return '—';
   }
   const now = new Date();
   const sameDay =
@@ -35,13 +66,17 @@ function formatTimestamp(ts: unknown): string {
     date.getMonth() === now.getMonth() &&
     date.getFullYear() === now.getFullYear();
 
-  const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  if (sameDay) return `Hoje às ${time}`;
-  return `${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} às ${time}`;
+  const time = date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+  if (sameDay) return time;
+  return `${date.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })} ${time}`;
 }
 
 interface ChatAreaProps {
   channelKey: string;
+  serverId?: string;
+  channelId?: string;
+  threadId?: string;
+  usingStaticFallback?: boolean;
   placeholder: string;
   messages: ChatMessage[];
   reactions: MessageReaction[];
@@ -52,7 +87,7 @@ interface ChatAreaProps {
   onTypingChange: (isTyping: boolean) => void;
   onSendMessage: (payload: {
     content: string;
-    attachment?: { name: string; type: string; dataUrl: string };
+    attachment?: PendingAttachment;
     replyTo?: { id: string; authorName: string; snippet: string };
   }) => Promise<void>;
   onEditMessage: (messageId: string, content: string) => Promise<void>;
@@ -63,6 +98,10 @@ interface ChatAreaProps {
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
   channelKey,
+  serverId = '',
+  channelId = '',
+  threadId = '',
+  usingStaticFallback = false,
   placeholder,
   messages,
   reactions,
@@ -77,11 +116,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   onToggleReaction,
   onClickAuthor,
 }) => {
+  const { lang, t } = useI18n();
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
-  const [attachment, setAttachment] = useState<{ name: string; type: string; dataUrl: string } | null>(
-    null
-  );
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
   const [replyTo, setReplyTo] = useState<{ id: string; authorName: string; snippet: string } | null>(
     null
   );
@@ -90,18 +129,29 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [pickerMessageId, setPickerMessageId] = useState<string | null>(null);
   const [composerEmojiOpen, setComposerEmojiOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; name: string } | null>(null);
+  const [expandedPdfs, setExpandedPdfs] = useState<Record<string, boolean>>({});
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   const listEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const typingTimerRef = useRef<number | null>(null);
+
+  // Live 1-second tick for temporary file expiration countdowns
+  useEffect(() => {
+    const hasTempFiles = messages.some((m) => Boolean(m.attachmentExpiresAt && !m.attachmentExpired));
+    if (!hasTempFiles && !attachment) return;
+    const timer = window.setInterval(() => {
+      setNowTick(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [messages, attachment]);
 
   const visibleMessages = useMemo(
     () => messages.filter((m) => !blockedUids.includes(m.authorId)),
     [messages, blockedUids]
   );
 
-  // Group reactions by messageId -> emoji -> userIds
   const reactionsMap = useMemo(() => {
     const map: Record<string, Record<string, string[]>> = {};
     for (const r of reactions) {
@@ -117,6 +167,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     setEditingId(null);
     setPickerMessageId(null);
     setComposerEmojiOpen(false);
+    setUploadError(null);
   }, [channelKey]);
 
   useEffect(() => {
@@ -139,22 +190,106 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     e.target.value = '';
     if (!file) return;
     setUploadError(null);
+
+    if (!isAllowedTemporaryFile(file)) {
+      setUploadError(t.fileNotAllowed);
+      return;
+    }
+
+    if (file.size > FIELD_LIMITS.TEMP_FILE_BYTES_MAX) {
+      setUploadError(t.fileTooLarge);
+      return;
+    }
+
+    setUploadingFile(true);
     try {
-      const processed = await fileToCompressedDataUrl(
-        file,
-        FIELD_LIMITS.ATTACHMENT_DATA_URL_MAX,
-        1280
-      );
-      setAttachment(processed);
+      if (!usingStaticFallback) {
+        const dataBase64 = await fileToBase64Payload(file);
+        const resp = await fetch(`${getApiBaseUrl()}/api/files/upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uid: currentUser.uid,
+            serverId,
+            channelId,
+            threadId,
+            fileName: file.name,
+            mimeType: file.type || 'application/octet-stream',
+            dataBase64,
+          }),
+        });
+
+        if (resp.status === 429) {
+          throw new Error(t.uploadQuotaExceeded);
+        }
+        if (resp.status === 413) {
+          throw new Error(t.fileTooLarge);
+        }
+        if (!resp.ok) {
+          const errJson = (await resp.json().catch(() => ({}))) as { error?: string };
+          throw new Error(errJson.error || t.tempFileOpenError);
+        }
+
+        const result = (await resp.json()) as {
+          id: string;
+          url: string;
+          fileName: string;
+          mimeType: string;
+          sizeBytes: number;
+          expiresAt: number;
+        };
+
+        setAttachment({
+          id: result.id,
+          name: result.fileName,
+          type: result.mimeType,
+          size: result.sizeBytes,
+          dataUrl: '',
+          url: result.url,
+          expiresAt: result.expiresAt,
+        });
+      } else {
+        // Pure static fallback (Netlify without external backend)
+        const expiresAt = Date.now() + FIELD_LIMITS.TEMP_FILE_TTL_MS;
+        if (file.type.startsWith('image/')) {
+          const compressed = await fileToCompressedDataUrl(
+            file,
+            FIELD_LIMITS.ATTACHMENT_DATA_URL_MAX,
+            1280
+          );
+          setAttachment({
+            name: compressed.name,
+            type: compressed.type,
+            size: file.size,
+            dataUrl: compressed.dataUrl,
+            expiresAt,
+          });
+        } else {
+          if (file.size > FIELD_LIMITS.ATTACHMENT_DATA_URL_MAX) {
+            throw new Error(t.fileTooLarge);
+          }
+          const base64 = await fileToBase64Payload(file);
+          const mime = file.type || 'application/octet-stream';
+          setAttachment({
+            name: file.name,
+            type: mime,
+            size: file.size,
+            dataUrl: `data:${mime};base64,${base64}`,
+            expiresAt,
+          });
+        }
+      }
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Erro ao processar arquivo.');
+      setUploadError(err instanceof Error ? err.message : t.tempFileOpenError);
+    } finally {
+      setUploadingFile(false);
     }
   };
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     const content = draft.trim();
-    if ((!content && !attachment) || sending) return;
+    if ((!content && !attachment) || sending || uploadingFile) return;
     setSending(true);
     setUploadError(null);
     try {
@@ -180,8 +315,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     setEditingDraft('');
   };
 
+  const acceptList = ALLOWED_UPLOAD_EXTENSIONS.map((ext) => `.${ext}`).join(',');
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[#0B0C10]">
+      {/* Discreet 5-Minute Ephemeral File Notice Strip */}
+      <div className="px-4 sm:px-6 py-2 border-b border-white/6 bg-white/[0.015] flex items-center gap-2 text-[11px] text-zinc-400 shrink-0">
+        <Clock className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+        <span className="truncate">{t.tempFileBanner}</span>
+      </div>
+
       {/* Messages Feed */}
       <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5 space-y-1">
         {visibleMessages.length === 0 ? (
@@ -189,9 +332,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/8 flex items-center justify-center text-zinc-400 mb-4">
               <SendHorizontal className="w-5 h-5" />
             </div>
-            <p className="text-sm font-medium text-zinc-200">Nenhuma mensagem ainda</p>
-            <p className="text-xs text-zinc-500 mt-1 max-w-xs">
-              Envie a primeira mensagem, compartilhe uma imagem ou anexe um arquivo para iniciar a conversa.
+            <p className="text-sm font-medium text-zinc-200">{t.emptyChatTitle}</p>
+            <p className="text-xs text-zinc-500 mt-1 max-w-sm leading-relaxed">
+              {t.emptyChatSubtitle}
             </p>
           </div>
         ) : (
@@ -200,6 +343,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             const isGrouped = Boolean(prev && prev.authorId === msg.authorId && !msg.replyToId);
             const isOwn = msg.authorId === currentUser.uid;
             const msgReactions = reactionsMap[msg.id] || {};
+
+            const hasAttachmentMeta = Boolean(
+              msg.attachmentName || msg.attachmentUrl || msg.attachmentDataUrl || msg.attachmentExpired
+            );
+            const isAttachmentExpired = Boolean(
+              msg.attachmentExpired ||
+                (msg.attachmentExpiresAt && nowTick >= msg.attachmentExpiresAt)
+            );
+            const resolvedSrc = resolveAttachmentUrl(msg.attachmentUrl || msg.attachmentDataUrl);
+            const remainingMs = msg.attachmentExpiresAt ? msg.attachmentExpiresAt - nowTick : 0;
+            const isImage = msg.attachmentType?.startsWith('image/');
+            const isVideo = msg.attachmentType?.startsWith('video/');
+            const isPdf =
+              msg.attachmentType === 'application/pdf' ||
+              msg.attachmentName?.toLowerCase().endsWith('.pdf');
+            const pdfExpanded = Boolean(expandedPdfs[msg.id]);
 
             return (
               <div
@@ -213,7 +372,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   <button
                     type="button"
                     onClick={() => setPickerMessageId(pickerMessageId === msg.id ? null : msg.id)}
-                    title="Reagir"
+                    title="Emoji"
                     className="p-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/10"
                   >
                     <Smile className="w-3.5 h-3.5" />
@@ -224,10 +383,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       setReplyTo({
                         id: msg.id,
                         authorName: msg.authorName,
-                        snippet: msg.content || msg.attachmentName || 'Anexo',
+                        snippet: msg.content || msg.attachmentName || 'File',
                       })
                     }
-                    title="Responder"
+                    title={t.replyAction}
                     className="p-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/10"
                   >
                     <CornerUpLeft className="w-3.5 h-3.5" />
@@ -239,7 +398,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         setEditingId(msg.id);
                         setEditingDraft(msg.content);
                       }}
-                      title="Editar"
+                      title={t.editAction}
                       className="p-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/10"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
@@ -249,7 +408,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     <button
                       type="button"
                       onClick={() => onDeleteMessage(msg.id)}
-                      title="Excluir"
+                      title={t.deleteAction}
                       className="p-1.5 rounded-md text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -282,7 +441,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 {/* Reply Quote Banner */}
                 {msg.replyToId && (
                   <div className="flex items-center gap-2 ml-12 mb-1 text-xs text-zinc-400">
-                    <CornerUpLeft className="w-3 h-3 text-indigo-400 shrink-0" />
+                    <CornerUpLeft className="w-3 h-3 text-blue-400 shrink-0" />
                     <span className="font-medium text-zinc-300">{msg.replyToAuthor}</span>
                     <span className="truncate max-w-md text-zinc-500">{msg.replyToSnippet}</span>
                   </div>
@@ -291,7 +450,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 <div className="flex items-start gap-3">
                   {isGrouped ? (
                     <div className="w-9 shrink-0 text-[10px] font-mono text-zinc-600 opacity-0 group-hover:opacity-100 text-right pt-1 select-none tabular-nums">
-                      {formatTimestamp(msg.createdAt).split(' ').pop()}
+                      {formatTimestamp(msg.createdAt, lang).split(' ').pop()}
                     </div>
                   ) : (
                     <button
@@ -305,7 +464,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
                   <div className="flex-1 min-w-0">
                     {!isGrouped && (
-                      <div className="flex items-baseline gap-2.5 mb-0.5">
+                      <div className="flex items-baseline gap-2 mb-0.5 flex-wrap">
                         <button
                           type="button"
                           onClick={() => onClickAuthor?.(msg.authorId)}
@@ -313,8 +472,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         >
                           {msg.authorName}
                         </button>
+                        {msg.authorTag && (
+                          <span className="text-[11px] font-mono text-zinc-500">
+                            {msg.authorTag}
+                          </span>
+                        )}
                         <span className="text-[11px] font-mono text-zinc-500 tabular-nums">
-                          {formatTimestamp(msg.createdAt)}
+                          {formatTimestamp(msg.createdAt, lang)}
                         </span>
                       </div>
                     )}
@@ -331,22 +495,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             if (e.key === 'Escape') setEditingId(null);
                           }}
                           autoFocus
-                          className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-indigo-500/50 text-sm text-white"
+                          className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-blue-500/50 text-sm text-white"
                         />
                         <div className="flex items-center gap-2 text-xs">
                           <button
                             type="button"
                             onClick={() => submitEdit(msg.id)}
-                            className="px-2.5 py-1 rounded-md bg-indigo-500 text-white font-medium flex items-center gap-1"
+                            className="px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium flex items-center gap-1"
                           >
-                            <Check className="w-3 h-3" /> Salvar
+                            <Check className="w-3 h-3" /> {t.saveAction}
                           </button>
                           <button
                             type="button"
                             onClick={() => setEditingId(null)}
                             className="px-2.5 py-1 rounded-md bg-white/5 text-zinc-300"
                           >
-                            Cancelar
+                            {t.cancelAction}
                           </button>
                         </div>
                       </div>
@@ -355,45 +519,141 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         <p className="text-[14.5px] text-zinc-200 leading-relaxed whitespace-pre-wrap break-words">
                           {msg.content}
                           {msg.edited && (
-                            <span className="ml-1.5 text-[11px] text-zinc-500">(editado)</span>
+                            <span className="ml-1.5 text-[11px] text-zinc-500">{t.editedLabel}</span>
                           )}
                         </p>
                       )
                     )}
 
-                    {/* Attachment Rendering */}
-                    {msg.attachmentDataUrl && (
+                    {/* Temporary Attachment Rendering */}
+                    {hasAttachmentMeta && (
                       <div className="mt-2">
-                        {msg.attachmentType.startsWith('image/') ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setLightboxImage({ src: msg.attachmentDataUrl, name: msg.attachmentName })
-                            }
-                            className="block rounded-xl overflow-hidden border border-white/10 max-w-sm hover:opacity-95 transition-opacity"
-                          >
-                            <img
-                              src={msg.attachmentDataUrl}
-                              alt={msg.attachmentName || 'Imagem enviada'}
-                              referrerPolicy="no-referrer"
-                              className="max-h-72 w-auto object-contain bg-black/40"
-                            />
-                          </button>
-                        ) : (
-                          <a
-                            href={msg.attachmentDataUrl}
-                            download={msg.attachmentName || 'arquivo'}
-                            className="inline-flex items-center gap-3 px-3.5 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 transition-colors max-w-xs"
-                          >
-                            <FileText className="w-5 h-5 text-indigo-400 shrink-0" />
-                            <div className="min-w-0">
-                              <div className="text-xs font-medium text-zinc-200 truncate">
-                                {msg.attachmentName || 'Arquivo anexo'}
+                        {isAttachmentExpired || !resolvedSrc ? (
+                          <div className="inline-flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-white/[0.025] border border-white/8 text-xs text-zinc-500">
+                            <Clock className="w-4 h-4 text-zinc-500 shrink-0" />
+                            <span>
+                              {msg.attachmentName ? `${msg.attachmentName} · ` : ''}
+                              {t.tempFileExpiredNotice}
+                            </span>
+                          </div>
+                        ) : isImage ? (
+                          <div className="inline-block space-y-1.5">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setLightboxImage({ src: resolvedSrc, name: msg.attachmentName })
+                              }
+                              className="block rounded-xl overflow-hidden border border-white/10 max-w-sm hover:opacity-95 transition-opacity"
+                            >
+                              <img
+                                src={resolvedSrc}
+                                alt={msg.attachmentName || 'Image'}
+                                referrerPolicy="no-referrer"
+                                className="max-h-72 w-auto object-contain bg-black/40"
+                              />
+                            </button>
+                            {msg.attachmentExpiresAt && (
+                              <div className="flex items-center gap-2 text-[11px] font-mono text-zinc-400 tabular-nums">
+                                <Clock className="w-3 h-3 text-blue-400" />
+                                <span>
+                                  {t.tempFileCountdownPrefix} {formatRemainingMs(remainingMs)}
+                                </span>
+                                {msg.attachmentSize ? (
+                                  <span>· {formatBytes(msg.attachmentSize)}</span>
+                                ) : null}
                               </div>
-                              <div className="text-[11px] text-zinc-500">Clique para baixar</div>
+                            )}
+                          </div>
+                        ) : isVideo ? (
+                          <div className="max-w-md space-y-1.5">
+                            <div className="rounded-xl overflow-hidden border border-white/10 bg-black">
+                              <video
+                                src={resolvedSrc}
+                                controls
+                                playsInline
+                                preload="metadata"
+                                className="w-full max-h-72 object-contain"
+                              />
                             </div>
-                            <Download className="w-4 h-4 text-zinc-400 shrink-0" />
-                          </a>
+                            <div className="flex items-center justify-between gap-3 text-[11px] font-mono text-zinc-400 tabular-nums">
+                              <span className="flex items-center gap-1.5 truncate">
+                                <Film className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+                                <span className="truncate">{msg.attachmentName}</span>
+                              </span>
+                              {msg.attachmentExpiresAt && (
+                                <span className="shrink-0 text-blue-300">
+                                  {t.tempFileCountdownPrefix} {formatRemainingMs(remainingMs)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-2 max-w-md">
+                            <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <FileText className="w-5 h-5 text-blue-400 shrink-0" />
+                                <div className="min-w-0">
+                                  <div className="text-xs font-medium text-zinc-200 truncate">
+                                    {msg.attachmentName || 'Document'}
+                                  </div>
+                                  <div className="text-[11px] font-mono text-zinc-400 tabular-nums flex items-center gap-1.5">
+                                    {msg.attachmentSize ? (
+                                      <span>{formatBytes(msg.attachmentSize)}</span>
+                                    ) : null}
+                                    {msg.attachmentExpiresAt && (
+                                      <span>
+                                        {msg.attachmentSize ? '· ' : ''}
+                                        {t.tempFileCountdownPrefix} {formatRemainingMs(remainingMs)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {isPdf && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedPdfs((prevMap) => ({
+                                        ...prevMap,
+                                        [msg.id]: !prevMap[msg.id],
+                                      }))
+                                    }
+                                    className="px-2.5 py-1 rounded-lg bg-white/8 hover:bg-white/14 text-[11px] font-medium text-zinc-200 flex items-center gap-1"
+                                  >
+                                    {pdfExpanded ? (
+                                      <>
+                                        <EyeOff className="w-3 h-3" />
+                                        {t.tempFileHidePreview}
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Eye className="w-3 h-3" />
+                                        {t.tempFilePreviewPdf}
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+                                <a
+                                  href={resolvedSrc}
+                                  download={msg.attachmentName || 'file'}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={t.tempFileDownload}
+                                  className="p-1.5 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 text-blue-300"
+                                >
+                                  <Download className="w-4 h-4" />
+                                </a>
+                              </div>
+                            </div>
+                            {isPdf && pdfExpanded && (
+                              <iframe
+                                src={resolvedSrc}
+                                title={msg.attachmentName}
+                                className="w-full h-80 rounded-xl border border-white/10 bg-zinc-900"
+                              />
+                            )}
+                          </div>
                         )}
                       </div>
                     )}
@@ -410,7 +670,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                               onClick={() => onToggleReaction(msg.id, emoji, reacted)}
                               className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-xs border transition-colors ${
                                 reacted
-                                  ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-200'
+                                  ? 'bg-blue-500/20 border-blue-400/40 text-blue-200'
                                   : 'bg-white/[0.04] border-white/10 text-zinc-300 hover:bg-white/[0.08]'
                               }`}
                             >
@@ -431,18 +691,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       </div>
 
       {/* Typing Indicator Strip */}
-      <div className="px-6 h-5 flex items-center text-xs text-zinc-400">
+      <div className="px-6 h-5 flex items-center text-xs text-zinc-400 shrink-0">
         {typingUsers.length > 0 && (
           <span>
             {typingUsers.length === 1
-              ? `${typingUsers[0]} está digitando...`
-              : `${typingUsers.join(', ')} estão digitando...`}
+              ? `${typingUsers[0]} ${t.typingOne}`
+              : `${typingUsers.join(', ')} ${t.typingMany}`}
           </span>
         )}
       </div>
 
       {/* Composer */}
-      <div className="px-4 sm:px-6 pb-4 pt-1">
+      <div className="px-4 sm:px-6 pb-4 pt-1 shrink-0">
         {uploadError && (
           <div className="mb-2 px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-rose-300 flex items-center justify-between">
             <span>{uploadError}</span>
@@ -452,11 +712,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           </div>
         )}
 
+        {uploadingFile && (
+          <div className="mb-2 px-3 py-2 rounded-xl bg-blue-500/10 border border-blue-500/25 text-xs text-blue-200">
+            {t.uploadingFile}
+          </div>
+        )}
+
         {replyTo && (
           <div className="mb-2 px-3.5 py-2 rounded-xl bg-white/[0.04] border border-white/10 flex items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2 min-w-0">
-              <CornerUpLeft className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-              <span className="text-zinc-400">Respondendo a</span>
+              <CornerUpLeft className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+              <span className="text-zinc-400">{t.replyingTo}</span>
               <span className="font-semibold text-white">{replyTo.authorName}</span>
               <span className="text-zinc-500 truncate">{replyTo.snippet}</span>
             </div>
@@ -469,20 +735,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         {attachment && (
           <div className="mb-2 p-2.5 rounded-xl bg-white/[0.04] border border-white/10 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              {attachment.type.startsWith('image/') ? (
+              {attachment.type.startsWith('image/') && (attachment.url || attachment.dataUrl) ? (
                 <img
-                  src={attachment.dataUrl}
+                  src={resolveAttachmentUrl(attachment.url || attachment.dataUrl)}
                   alt={attachment.name}
                   className="w-12 h-12 rounded-lg object-cover border border-white/10"
                 />
               ) : (
-                <div className="w-10 h-10 rounded-lg bg-indigo-500/15 flex items-center justify-center text-indigo-400">
+                <div className="w-10 h-10 rounded-lg bg-blue-500/15 flex items-center justify-center text-blue-400">
                   <FileText className="w-5 h-5" />
                 </div>
               )}
               <div className="min-w-0">
                 <div className="text-xs font-medium text-zinc-200 truncate">{attachment.name}</div>
-                <div className="text-[11px] text-zinc-500">Pronto para enviar</div>
+                <div className="text-[11px] font-mono text-zinc-400 tabular-nums">
+                  {formatBytes(attachment.size)} · {t.tempFileCountdownPrefix}{' '}
+                  {formatRemainingMs(attachment.expiresAt - nowTick)}
+                </div>
               </div>
             </div>
             <button
@@ -497,19 +766,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
         <form
           onSubmit={handleSend}
-          className="relative flex items-center gap-2 px-3 py-2 rounded-2xl bg-[#14161D] border border-white/10 focus-within:border-indigo-500/60 transition-colors"
+          className="relative flex items-center gap-2 px-3 py-2 rounded-2xl bg-[#14161D] border border-white/10 focus-within:border-blue-500/60 transition-colors"
         >
           <input
             ref={fileInputRef}
             type="file"
+            accept={acceptList}
             onChange={handleFilePick}
             className="hidden"
           />
           <button
             type="button"
+            disabled={uploadingFile}
             onClick={() => fileInputRef.current?.click()}
-            title="Anexar imagem ou arquivo"
-            className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/8 transition-colors shrink-0"
+            title={t.attachFileTitle}
+            className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/8 transition-colors shrink-0 disabled:opacity-40"
           >
             <Paperclip className="w-4 h-4" />
           </button>
@@ -527,7 +798,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             <button
               type="button"
               onClick={() => setComposerEmojiOpen((o) => !o)}
-              title="Inserir emoji"
+              title="Emoji"
               className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/8 transition-colors shrink-0"
             >
               <Smile className="w-4 h-4" />
@@ -553,8 +824,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
           <button
             type="submit"
-            disabled={sending || (!draft.trim() && !attachment)}
-            className="p-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white disabled:opacity-40 disabled:hover:bg-indigo-500 transition-colors shrink-0"
+            disabled={sending || uploadingFile || (!draft.trim() && !attachment)}
+            title={t.sendMessageTitle}
+            className="p-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white disabled:opacity-40 transition-colors shrink-0"
           >
             <SendHorizontal className="w-4 h-4" />
           </button>
@@ -580,14 +852,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 download={lightboxImage.name}
                 className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs text-white flex items-center gap-1.5"
               >
-                <Download className="w-3.5 h-3.5" /> Baixar
+                <Download className="w-3.5 h-3.5" /> {t.tempFileDownload}
               </a>
               <button
                 type="button"
                 onClick={() => setLightboxImage(null)}
                 className="px-3 py-1.5 rounded-lg bg-white text-zinc-950 text-xs font-medium"
               >
-                Fechar
+                {t.closeBtn}
               </button>
             </div>
           </div>

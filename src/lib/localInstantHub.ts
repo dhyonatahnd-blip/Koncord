@@ -5,6 +5,7 @@ import {
   DmThread,
   FriendshipDoc,
   MessageReaction,
+  MessageRetention,
   NotificationItem,
   PresenceStatus,
   ServerDoc,
@@ -13,9 +14,10 @@ import {
   VoicePeer,
 } from '../types';
 
-const STORAGE_KEY = 'vesper_static_hub_v1';
-const CHANNEL_NAME = 'vesper_static_realtime_v1';
-const DEFAULT_SERVER_ID = 'srv_open_eu';
+const STORAGE_KEY = 'zone_static_hub_v1';
+const CHANNEL_NAME = 'zone_static_realtime_v1';
+const DEFAULT_SERVER_ID = 'srv_zone_eu';
+const SECONDARY_PUBLIC_SERVER_ID = 'srv_euro_design';
 
 interface PersistedHubState {
   usersByUid: Record<string, UserPublic>;
@@ -38,6 +40,14 @@ function makeId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function makeTagFromUid(uid: string): string {
+  let hash = 0;
+  for (let i = 0; i < uid.length; i++) {
+    hash = (hash * 31 + uid.charCodeAt(i)) >>> 0;
+  }
+  return `#${hash.toString(16).toUpperCase().padStart(4, '0').slice(0, 4)}`;
+}
+
 function makeInvite(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let out = '';
@@ -47,9 +57,16 @@ function makeInvite(): string {
 
 function initialsFrom(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return 'VS';
+  if (parts.length === 0) return 'ZN';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function retentionToMs(retention?: MessageRetention): number | null {
+  if (retention === '5m') return 5 * 60 * 1000;
+  if (retention === '15m') return 15 * 60 * 1000;
+  if (retention === '60m') return 60 * 60 * 1000;
+  return null;
 }
 
 function createSeedState(): PersistedHubState {
@@ -59,38 +76,47 @@ function createSeedState(): PersistedHubState {
     servers: [
       {
         id: DEFAULT_SERVER_ID,
-        name: 'Vesper Europa',
-        description: 'Sala aberta em tempo real sem necessidade de cadastro ou banco de dados.',
-        iconColor: '#5B6AF0',
-        iconInitials: 'VE',
+        name: 'ZONE Europa',
+        description: 'Lobby público temporário para conversas, chamadas e compartilhamento de tela.',
+        iconColor: '#3B82F6',
+        iconInitials: 'ZE',
         iconDataUrl: '',
         ownerId: 'system',
-        inviteCode: 'VESPEREU',
+        inviteCode: 'ZONEEU',
+        visibility: 'public',
+        retention: 'until_close',
+        clearOnClose: true,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: SECONDARY_PUBLIC_SERVER_ID,
+        name: 'Euro Studio & Dev',
+        description: 'Sala pública para design, tecnologia e apresentações de tela.',
+        iconColor: '#7C3AED',
+        iconInitials: 'ES',
+        iconDataUrl: '',
+        ownerId: 'system',
+        inviteCode: 'EURODEV',
+        visibility: 'public',
+        retention: '60m',
+        clearOnClose: true,
         createdAt: now,
         updatedAt: now,
       },
     ],
     membersByServer: {
       [DEFAULT_SERVER_ID]: [],
+      [SECONDARY_PUBLIC_SERVER_ID]: [],
     },
     categoriesByServer: {
       [DEFAULT_SERVER_ID]: [
-        {
-          id: 'cat_text_eu',
-          serverId: DEFAULT_SERVER_ID,
-          name: 'Canais de Texto',
-          position: 0,
-          createdAt: now,
-          updatedAt: now,
-        },
-        {
-          id: 'cat_media_eu',
-          serverId: DEFAULT_SERVER_ID,
-          name: 'Voz, Vídeo & Tela',
-          position: 1,
-          createdAt: now,
-          updatedAt: now,
-        },
+        { id: 'cat_text_eu', serverId: DEFAULT_SERVER_ID, name: 'Texto', position: 0, createdAt: now, updatedAt: now },
+        { id: 'cat_media_eu', serverId: DEFAULT_SERVER_ID, name: 'Voz, Vídeo & Tela', position: 1, createdAt: now, updatedAt: now },
+      ],
+      [SECONDARY_PUBLIC_SERVER_ID]: [
+        { id: 'cat_text_dev', serverId: SECONDARY_PUBLIC_SERVER_ID, name: 'Texto', position: 0, createdAt: now, updatedAt: now },
+        { id: 'cat_media_dev', serverId: SECONDARY_PUBLIC_SERVER_ID, name: 'Review & Vídeo', position: 1, createdAt: now, updatedAt: now },
       ],
     },
     channelsByServer: {
@@ -100,7 +126,7 @@ function createSeedState(): PersistedHubState {
           serverId: DEFAULT_SERVER_ID,
           categoryId: 'cat_text_eu',
           name: 'geral',
-          topic: 'Conversa aberta em tempo real — envie mensagens, imagens, arquivos ou compartilhe sua tela.',
+          topic: 'Chat temporário em tempo real. Arquivos enviados expiram em 5 minutos.',
           type: 'text',
           position: 0,
           createdAt: now,
@@ -111,7 +137,7 @@ function createSeedState(): PersistedHubState {
           serverId: DEFAULT_SERVER_ID,
           categoryId: 'cat_media_eu',
           name: 'Lounge de Voz',
-          topic: 'Áudio em tempo real com controle individual de volume.',
+          topic: 'Chamada de voz em tempo real.',
           type: 'voice',
           position: 0,
           createdAt: now,
@@ -122,9 +148,33 @@ function createSeedState(): PersistedHubState {
           serverId: DEFAULT_SERVER_ID,
           categoryId: 'cat_media_eu',
           name: 'Sala Vídeo & Tela',
-          topic: 'Vídeo e compartilhamento de tela em alta definição com modo TELA CHEIA.',
+          topic: 'Vídeo multi-participante e tela cheia sem cortes.',
           type: 'video',
           position: 1,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+      [SECONDARY_PUBLIC_SERVER_ID]: [
+        {
+          id: 'ch_geral_dev',
+          serverId: SECONDARY_PUBLIC_SERVER_ID,
+          categoryId: 'cat_text_dev',
+          name: 'showcase',
+          topic: 'Envie imagens, vídeos ou PDFs (autoexclusão em 5 min).',
+          type: 'text',
+          position: 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: 'ch_video_dev',
+          serverId: SECONDARY_PUBLIC_SERVER_ID,
+          categoryId: 'cat_media_dev',
+          name: 'Screen Review',
+          topic: 'Compartilhe janela ou tela inteira em alta definição.',
+          type: 'video',
+          position: 0,
           createdAt: now,
           updatedAt: now,
         },
@@ -178,6 +228,7 @@ export class LocalInstantHub {
   private onMessage: (msg: Record<string, unknown>) => void;
   private voiceChannelId: string | null = null;
   private voiceServerId: string | null = null;
+  private cleanupTimer: number | null = null;
 
   constructor(params: {
     uid: string;
@@ -185,6 +236,7 @@ export class LocalInstantHub {
     username?: string;
     avatarDataUrl: string;
     presence: PresenceStatus;
+    initialInviteCode?: string;
     isInstant: boolean;
     onMessage: (msg: Record<string, unknown>) => void;
   }) {
@@ -210,18 +262,19 @@ export class LocalInstantHub {
     if (this.isInstant) {
       const now = Date.now();
       const existing = state.usersByUid[this.uid];
-      const cleanName = this.displayName.slice(0, 48) || 'Visitante';
+      const cleanName = this.displayName.slice(0, 32) || 'Visitante';
       const cleanUser =
         String(params.username || existing?.username || cleanName)
           .toLowerCase()
           .replace(/[^a-z0-9_.-]/g, '')
-          .slice(0, 32) || `visitante_${this.uid.slice(-4)}`;
+          .slice(0, 32) || `zone_${this.uid.slice(-4)}`;
 
       state.usersByUid[this.uid] = {
         uid: this.uid,
+        tag: existing?.tag || makeTagFromUid(this.uid),
         displayName: cleanName,
         username: cleanUser,
-        bio: existing?.bio ?? 'Conectado via Modo Instantâneo Vesper.',
+        bio: existing?.bio ?? '',
         customStatus: existing?.customStatus ?? '',
         presence: this.presence,
         avatarDataUrl: this.avatarDataUrl || existing?.avatarDataUrl || '',
@@ -230,7 +283,10 @@ export class LocalInstantHub {
       };
 
       const members = state.membersByServer[DEFAULT_SERVER_ID] || [];
-      if (!members.some((m) => m.uid === this.uid)) {
+      const hasAnyMembership = Object.values(state.membersByServer).some((mList) =>
+        mList.some((m) => m.uid === this.uid)
+      );
+      if (!hasAnyMembership && !members.some((m) => m.uid === this.uid)) {
         members.push({
           uid: this.uid,
           serverId: DEFAULT_SERVER_ID,
@@ -239,14 +295,68 @@ export class LocalInstantHub {
         });
         state.membersByServer[DEFAULT_SERVER_ID] = members;
       }
+
+      const initCode = String(params.initialInviteCode || '').trim().toUpperCase();
+      if (initCode) {
+        const invitedSrv = state.servers.find((s) => s.inviteCode === initCode);
+        if (invitedSrv) {
+          const srvMembers = state.membersByServer[invitedSrv.id] || [];
+          if (!srvMembers.some((m) => m.uid === this.uid)) {
+            srvMembers.push({ uid: this.uid, serverId: invitedSrv.id, role: 'member', joinedAt: now });
+            state.membersByServer[invitedSrv.id] = srvMembers;
+          }
+          this.emitLocal({ type: 'instant:server-joined', serverId: invitedSrv.id });
+        }
+      }
     }
 
+    this.sweepExpired(state, false);
     saveState(state);
     this.emitLocal({ type: 'presence:snapshot', presences: state.presences });
     if (this.isInstant) {
       this.emitLocal(this.buildSnapshotForUser(state, this.uid));
     }
     this.broadcast({ type: 'hub:sync', uid: this.uid });
+
+    // Local cleanup sweep every 30s for static fallback mode
+    if (typeof window !== 'undefined') {
+      this.cleanupTimer = window.setInterval(() => {
+        const cur = loadState();
+        if (this.sweepExpired(cur, true)) {
+          this.syncAll(cur);
+        }
+      }, 30000);
+    }
+  }
+
+  private sweepExpired(state: PersistedHubState, emitAlerts: boolean): boolean {
+    const now = Date.now();
+    let changed = false;
+
+    const cleanMessages = (map: Record<string, ChatMessage[]>) => {
+      for (const [key, list] of Object.entries(map)) {
+        const filtered = list.filter((m) => !m.expiresAt || now < m.expiresAt);
+        if (filtered.length !== list.length) {
+          map[key] = filtered;
+          changed = true;
+        }
+        for (const m of map[key]) {
+          if (m.attachmentExpiresAt && now >= m.attachmentExpiresAt && !m.attachmentExpired) {
+            m.attachmentExpired = true;
+            m.attachmentDataUrl = '';
+            m.attachmentUrl = '';
+            changed = true;
+            if (emitAlerts) {
+              this.emitLocal({ type: 'zone:file-expired', fileId: m.attachmentId || m.id });
+            }
+          }
+        }
+      }
+    };
+
+    cleanMessages(state.messagesByChannel);
+    cleanMessages(state.dmMessagesByThread);
+    return changed;
   }
 
   private emitLocal(payload: Record<string, unknown>) {
@@ -292,7 +402,8 @@ export class LocalInstantHub {
       type === 'room:peer-left' ||
       type === 'room:peer-state' ||
       type === 'screen:started' ||
-      type === 'screen:stopped'
+      type === 'screen:stopped' ||
+      type === 'zone:room-closed'
     ) {
       this.emitLocal(data);
     }
@@ -309,6 +420,7 @@ export class LocalInstantHub {
 
   private buildSnapshotForUser(state: PersistedHubState, uid: string): Record<string, unknown> {
     const userServers: ServerDoc[] = [];
+    const publicServers: ServerDoc[] = [];
     const membersMap: Record<string, ServerMember[]> = {};
     const categoriesMap: Record<string, CategoryDoc[]> = {};
     const channelsMap: Record<string, ChannelDoc[]> = {};
@@ -317,8 +429,11 @@ export class LocalInstantHub {
 
     for (const srv of state.servers) {
       const srvMembers = state.membersByServer[srv.id] || [];
+      if ((srv.visibility ?? 'public') === 'public') {
+        publicServers.push({ ...srv, memberCount: srvMembers.length });
+      }
       if (srvMembers.some((m) => m.uid === uid)) {
-        userServers.push(srv);
+        userServers.push({ ...srv, memberCount: srvMembers.length });
         membersMap[srv.id] = srvMembers;
         categoriesMap[srv.id] = state.categoriesByServer[srv.id] || [];
         const chs = state.channelsByServer[srv.id] || [];
@@ -343,6 +458,7 @@ export class LocalInstantHub {
       type: 'instant:snapshot',
       usersByUid: state.usersByUid,
       servers: userServers,
+      publicServers,
       membersByServer: membersMap,
       categoriesByServer: categoriesMap,
       channelsByServer: channelsMap,
@@ -522,13 +638,12 @@ export class LocalInstantHub {
       return;
     }
 
-    // --- Instant Mode CRUD ---
     if (type === 'instant:profile-update') {
       const user = state.usersByUid[this.uid];
       if (!user) return;
       const updates = (msg.updates as Partial<UserPublic>) || {};
       if (updates.displayName !== undefined) {
-        user.displayName = String(updates.displayName).slice(0, 48) || user.displayName;
+        user.displayName = String(updates.displayName).slice(0, 32) || user.displayName;
         this.displayName = user.displayName;
       }
       if (updates.username !== undefined) {
@@ -557,16 +672,26 @@ export class LocalInstantHub {
     if (type === 'instant:server-create') {
       const now = Date.now();
       const serverId = makeId('srv');
-      const name = String(msg.name || 'Nova Comunidade').slice(0, 64);
+      const name = String(msg.name || 'Nova Sala').slice(0, 64);
+      const visibility = msg.visibility === 'private' ? 'private' : 'public';
+      const retention: MessageRetention =
+        msg.retention === '5m' || msg.retention === '15m' || msg.retention === '60m'
+          ? msg.retention
+          : 'until_close';
+      const clearOnClose = msg.clearOnClose !== false;
+
       state.servers.push({
         id: serverId,
         name,
         description: String(msg.description || '').slice(0, 240),
-        iconColor: String(msg.iconColor || '#5B6AF0'),
+        iconColor: String(msg.iconColor || '#3B82F6'),
         iconInitials: initialsFrom(name),
         iconDataUrl: '',
         ownerId: this.uid,
         inviteCode: makeInvite(),
+        visibility,
+        retention,
+        clearOnClose,
         createdAt: now,
         updatedAt: now,
       });
@@ -574,13 +699,13 @@ export class LocalInstantHub {
       const catTextId = makeId('cat');
       const catMediaId = makeId('cat');
       state.categoriesByServer[serverId] = [
-        { id: catTextId, serverId, name: 'Canais de Texto', position: 0, createdAt: now, updatedAt: now },
+        { id: catTextId, serverId, name: 'Texto', position: 0, createdAt: now, updatedAt: now },
         { id: catMediaId, serverId, name: 'Voz, Vídeo & Tela', position: 1, createdAt: now, updatedAt: now },
       ];
       state.channelsByServer[serverId] = [
-        { id: makeId('ch'), serverId, categoryId: catTextId, name: 'geral', topic: 'Conversas da comunidade', type: 'text', position: 0, createdAt: now, updatedAt: now },
-        { id: makeId('ch'), serverId, categoryId: catMediaId, name: 'Lounge de Voz', topic: 'Áudio em tempo real', type: 'voice', position: 0, createdAt: now, updatedAt: now },
-        { id: makeId('ch'), serverId, categoryId: catMediaId, name: 'Sala Vídeo & Tela', topic: 'Vídeo e compartilhamento de tela', type: 'video', position: 1, createdAt: now, updatedAt: now },
+        { id: makeId('ch'), serverId, categoryId: catTextId, name: 'geral', topic: 'Chat temporário — arquivos expiram em 5 min.', type: 'text', position: 0, createdAt: now, updatedAt: now },
+        { id: makeId('ch'), serverId, categoryId: catMediaId, name: 'Voz', topic: 'Áudio em tempo real', type: 'voice', position: 0, createdAt: now, updatedAt: now },
+        { id: makeId('ch'), serverId, categoryId: catMediaId, name: 'Vídeo & Tela', topic: 'Câmera e compartilhamento de tela', type: 'video', position: 1, createdAt: now, updatedAt: now },
       ];
       this.syncAll(state);
       this.emitLocal({ type: 'instant:server-created', serverId });
@@ -589,9 +714,12 @@ export class LocalInstantHub {
 
     if (type === 'instant:server-join') {
       const code = String(msg.inviteCode || '').trim().toUpperCase();
-      const targetSrv = state.servers.find((s) => s.inviteCode === code);
+      const serverIdParam = String(msg.serverId || '').trim();
+      const targetSrv = serverIdParam
+        ? state.servers.find((s) => s.id === serverIdParam && (s.visibility ?? 'public') === 'public')
+        : state.servers.find((s) => s.inviteCode === code);
       if (!targetSrv) {
-        this.emitLocal({ type: 'instant:error', message: 'Código de convite não encontrado.' });
+        this.emitLocal({ type: 'instant:error', message: 'Sala não encontrada ou convite inválido.' });
         return;
       }
       const list = state.membersByServer[targetSrv.id] || [];
@@ -613,6 +741,16 @@ export class LocalInstantHub {
       }
       if (msg.description !== undefined) srv.description = String(msg.description).slice(0, 240);
       if (msg.iconDataUrl !== undefined) srv.iconDataUrl = String(msg.iconDataUrl).slice(0, 200000);
+      if (msg.visibility === 'public' || msg.visibility === 'private') srv.visibility = msg.visibility;
+      if (
+        msg.retention === '5m' ||
+        msg.retention === '15m' ||
+        msg.retention === '60m' ||
+        msg.retention === 'until_close'
+      ) {
+        srv.retention = msg.retention;
+      }
+      if (msg.clearOnClose !== undefined) srv.clearOnClose = Boolean(msg.clearOnClose);
       srv.updatedAt = Date.now();
       this.syncAll(state);
       return;
@@ -624,6 +762,31 @@ export class LocalInstantHub {
         (m) => m.uid !== this.uid || m.role === 'owner'
       );
       this.syncAll(state);
+      return;
+    }
+
+    if (type === 'instant:server-close') {
+      const serverId = String(msg.serverId || '');
+      if (serverId === DEFAULT_SERVER_ID || serverId === SECONDARY_PUBLIC_SERVER_ID) {
+        this.emitLocal({ type: 'instant:error', message: 'Salas públicas padrão não podem ser encerradas.' });
+        return;
+      }
+      const srv = state.servers.find((s) => s.id === serverId);
+      if (!srv) return;
+      const chs = state.channelsByServer[serverId] || [];
+      if (srv.clearOnClose !== false) {
+        for (const ch of chs) {
+          delete state.messagesByChannel[ch.id];
+          delete state.reactionsByChannel[ch.id];
+        }
+      }
+      state.servers = state.servers.filter((s) => s.id !== serverId);
+      delete state.membersByServer[serverId];
+      delete state.categoriesByServer[serverId];
+      delete state.channelsByServer[serverId];
+      this.syncAll(state);
+      this.emitLocal({ type: 'zone:room-closed', serverId, serverName: srv.name });
+      this.broadcast({ type: 'zone:room-closed', serverId, serverName: srv.name });
       return;
     }
 
@@ -727,24 +890,34 @@ export class LocalInstantHub {
       const serverId = String(msg.serverId || '');
       const channelId = String(msg.channelId || '');
       const user = state.usersByUid[this.uid];
+      const srv = state.servers.find((s) => s.id === serverId);
       if (!user || !channelId) return;
       const arr = state.messagesByChannel[channelId] || [];
       const now = Date.now();
+      const retMs = retentionToMs(srv?.retention);
       arr.push({
         id: makeId('msg'),
         serverId,
         channelId,
         authorId: user.uid,
         authorName: user.displayName,
+        authorTag: user.tag,
         authorAvatar: user.avatarDataUrl,
         content: String(msg.content || '').slice(0, 4000),
+        attachmentId: msg.attachmentId ? String(msg.attachmentId) : undefined,
         attachmentName: String(msg.attachmentName || '').slice(0, 140),
-        attachmentType: String(msg.attachmentType || '').slice(0, 80),
+        attachmentType: String(msg.attachmentType || '').slice(0, 100),
+        attachmentSize: typeof msg.attachmentSize === 'number' ? msg.attachmentSize : undefined,
         attachmentDataUrl: String(msg.attachmentDataUrl || '').slice(0, 450000),
+        attachmentUrl: msg.attachmentUrl ? String(msg.attachmentUrl).slice(0, 400) : undefined,
+        attachmentExpiresAt:
+          typeof msg.attachmentExpiresAt === 'number' ? msg.attachmentExpiresAt : undefined,
+        attachmentExpired: false,
         replyToId: String(msg.replyToId || ''),
         replyToAuthor: String(msg.replyToAuthor || ''),
         replyToSnippet: String(msg.replyToSnippet || '').slice(0, 160),
         edited: false,
+        expiresAt: retMs ? now + retMs : undefined,
         createdAt: now,
         updatedAt: now,
       });
@@ -822,7 +995,7 @@ export class LocalInstantHub {
           senderId: this.uid,
           senderName: this.displayName,
           type: 'friend_request',
-          title: 'Nova solicitação de amizade',
+          title: 'Nova solicitação',
           body: `${this.displayName} quer conectar-se com você.`,
           linkServerId: '',
           linkChannelId: '',
@@ -897,11 +1070,18 @@ export class LocalInstantHub {
         threadId,
         authorId: user.uid,
         authorName: user.displayName,
+        authorTag: user.tag,
         authorAvatar: user.avatarDataUrl,
         content,
+        attachmentId: msg.attachmentId ? String(msg.attachmentId) : undefined,
         attachmentName,
-        attachmentType: String(msg.attachmentType || '').slice(0, 80),
+        attachmentType: String(msg.attachmentType || '').slice(0, 100),
+        attachmentSize: typeof msg.attachmentSize === 'number' ? msg.attachmentSize : undefined,
         attachmentDataUrl: String(msg.attachmentDataUrl || '').slice(0, 450000),
+        attachmentUrl: msg.attachmentUrl ? String(msg.attachmentUrl).slice(0, 400) : undefined,
+        attachmentExpiresAt:
+          typeof msg.attachmentExpiresAt === 'number' ? msg.attachmentExpiresAt : undefined,
+        attachmentExpired: false,
         replyToId: String(msg.replyToId || ''),
         replyToAuthor: String(msg.replyToAuthor || ''),
         replyToSnippet: String(msg.replyToSnippet || '').slice(0, 160),
@@ -974,7 +1154,7 @@ export class LocalInstantHub {
           senderName: this.displayName,
           type: 'invite',
           title: `Convite para ${srv.name}`,
-          body: `Use o código ${srv.inviteCode} para entrar na comunidade.`,
+          body: `Use o código ${srv.inviteCode} para entrar na sala.`,
           linkServerId: srv.id,
           linkChannelId: '',
           linkUserId: this.uid,
@@ -1013,6 +1193,10 @@ export class LocalInstantHub {
   }
 
   public dispose() {
+    if (this.cleanupTimer) {
+      window.clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
     const state = loadState();
     const prevSrv = this.voiceServerId;
     this.leaveVoiceInState(state);

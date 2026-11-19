@@ -1,17 +1,18 @@
 import React from 'react';
 import { PresenceStatus } from '../types';
-import { getInitials } from '../lib/validation';
+import { TranslationStrings } from '../i18n/translations';
+import { computeInitials } from '../lib/validation';
 
-export function presenceLabel(status: PresenceStatus): string {
+export function presenceLabel(status: PresenceStatus, t?: TranslationStrings): string {
   switch (status) {
     case 'online':
-      return 'Disponível';
+      return t ? t.online : 'Disponível';
     case 'idle':
-      return 'Ausente';
+      return t ? t.idle : 'Ausente';
     case 'dnd':
-      return 'Ocupado';
+      return t ? t.dnd : 'Ocupado';
     case 'invisible':
-      return 'Invisível';
+      return t ? t.invisible : 'Invisível';
   }
 }
 
@@ -67,12 +68,11 @@ export const Avatar: React.FC<{
             className="w-full h-full object-cover"
           />
         ) : (
-          <span>{getInitials(name)}</span>
+          <span>{computeInitials(name)}</span>
         )}
       </div>
       {presence && (
         <span
-          title={presenceLabel(presence)}
           className={`absolute -bottom-0.5 -right-0.5 rounded-full border-[#111216] ${dotSizeMap[size]} ${presenceDotClass(
             presence
           )}`}

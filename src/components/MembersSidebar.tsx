@@ -1,6 +1,7 @@
 import React from 'react';
 import { Crown, Shield } from 'lucide-react';
 import { PresenceStatus, ServerMember, UserPublic } from '../types';
+import { useI18n } from '../i18n/I18nContext';
 import { Avatar } from './Avatar';
 
 interface MembersSidebarProps {
@@ -16,6 +17,8 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
   livePresences,
   onSelectMember,
 }) => {
+  const { t } = useI18n();
+
   const enriched = members
     .map((m) => {
       const profile = usersByUid[m.uid];
@@ -60,14 +63,19 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
                 >
                   {profile.displayName}
                 </span>
+                {profile.tag && (
+                  <span className="text-[10px] font-mono text-zinc-500 shrink-0">
+                    {profile.tag}
+                  </span>
+                )}
                 {member.role === 'owner' && (
-                  <span title="Proprietário">
+                  <span title={t.ownerRole}>
                     <Crown className="w-3 h-3 text-amber-400 shrink-0" />
                   </span>
                 )}
                 {member.role === 'admin' && (
-                  <span title="Administrador">
-                    <Shield className="w-3 h-3 text-indigo-400 shrink-0" />
+                  <span title={t.adminRole}>
+                    <Shield className="w-3 h-3 text-blue-400 shrink-0" />
                   </span>
                 )}
               </div>
@@ -83,8 +91,8 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
 
   return (
     <aside className="w-60 shrink-0 bg-[#101116] border-l border-white/8 overflow-y-auto px-3 py-4 space-y-5 select-none">
-      {renderGroup('Online', onlineList)}
-      {renderGroup('Offline / Invisível', offlineList)}
+      {renderGroup(t.onlineCount, onlineList)}
+      {renderGroup(t.offlineCount, offlineList)}
     </aside>
   );
 };

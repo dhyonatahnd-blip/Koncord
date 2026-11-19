@@ -6,7 +6,6 @@ import {
   Search,
   Settings,
   ShieldOff,
-  UserCheck,
   UserPlus,
   UserX,
   Users,
@@ -20,13 +19,15 @@ import {
   PresenceStatus,
   UserPublic,
 } from '../types';
+import { useI18n } from '../i18n/I18nContext';
 import { Avatar, presenceLabel } from './Avatar';
-import { ChatArea } from './ChatArea';
+import { ChatArea, PendingAttachment } from './ChatArea';
 
 type FriendsTab = 'online' | 'all' | 'pending' | 'blocked' | 'add';
 
 interface FriendsAndDmViewProps {
   currentUser: UserPublic;
+  usingStaticFallback?: boolean;
   blockedUids: string[];
   friendships: FriendshipDoc[];
   dmThreads: DmThread[];
@@ -44,7 +45,7 @@ interface FriendsAndDmViewProps {
   onToggleBlockUser: (targetUid: string) => Promise<void>;
   onSendDmMessage: (payload: {
     content: string;
-    attachment?: { name: string; type: string; dataUrl: string };
+    attachment?: PendingAttachment;
     replyTo?: { id: string; authorName: string; snippet: string };
   }) => Promise<void>;
   onEditDmMessage: (messageId: string, content: string) => Promise<void>;
@@ -56,6 +57,7 @@ interface FriendsAndDmViewProps {
 
 export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
   currentUser,
+  usingStaticFallback = false,
   blockedUids,
   friendships,
   dmThreads,
@@ -78,6 +80,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
   onTypingChange,
   onOpenUserSettings,
 }) => {
+  const { t } = useI18n();
   const [tab, setTab] = useState<FriendsTab>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [addUsername, setAddUsername] = useState('');
@@ -109,7 +112,8 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
     const q = searchTerm.toLowerCase();
     return (
       item.profile?.displayName.toLowerCase().includes(q) ||
-      item.profile?.username.toLowerCase().includes(q)
+      item.profile?.username.toLowerCase().includes(q) ||
+      item.profile?.tag?.toLowerCase().includes(q)
     );
   });
 
@@ -120,12 +124,12 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
     setAddFeedback(null);
     try {
       await onSendFriendRequestByUsername(addUsername.trim());
-      setAddFeedback({ type: 'ok', text: `Solicitação enviada para @${addUsername.replace(/^@/, '')}.` });
+      setAddFeedback({ type: 'ok', text: t.friendRequestSent });
       setAddUsername('');
     } catch (err) {
       setAddFeedback({
         type: 'err',
-        text: err instanceof Error ? err.message : 'Usuário não encontrado.',
+        text: err instanceof Error ? err.message : t.tempFileOpenError,
       });
     } finally {
       setAddBusy(false);
@@ -133,10 +137,15 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
   };
 
   const activeDmPeer = activeDmPeerUid ? usersByUid[activeDmPeerUid] : null;
+  const activeThreadId = activeDmPeerUid
+    ? currentUser.uid < activeDmPeerUid
+      ? `${currentUser.uid}_${activeDmPeerUid}`
+      : `${activeDmPeerUid}_${currentUser.uid}`
+    : '';
 
   return (
     <div className="flex-1 flex min-w-0 min-h-0">
-      {/* Left DM & Friends Drawer */}
+      {/* Left DM & Contacts Drawer */}
       <aside className="w-64 shrink-0 bg-[#101116] border-r border-white/8 flex flex-col select-none">
         <div className="h-14 px-3 border-b border-white/8 flex items-center">
           <button
@@ -144,12 +153,12 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
             onClick={onSelectFriendsHome}
             className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${
               !activeDmPeerUid
-                ? 'bg-indigo-500/15 text-white border border-indigo-400/25'
+                ? 'bg-blue-500/15 text-white border border-blue-400/25'
                 : 'text-zinc-300 hover:bg-white/[0.05]'
             }`}
           >
-            <Users className="w-4 h-4 text-indigo-400" />
-            <span>Amigos</span>
+            <Users className="w-4 h-4 text-blue-400" />
+            <span>{t.friendsAndDmsTitle}</span>
             {pendingRequests.filter((r) => r.recipientId === currentUser.uid).length > 0 && (
               <span className="ml-auto px-1.5 py-0.5 rounded-md bg-rose-500 text-white text-[10px] font-mono tabular-nums">
                 {pendingRequests.filter((r) => r.recipientId === currentUser.uid).length}
@@ -159,10 +168,10 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
         </div>
 
         <div className="flex-1 overflow-y-auto px-2.5 py-3 space-y-1">
-          <div className="px-2 pb-1 text-[11px] font-medium text-zinc-500">Mensagens Diretas</div>
+          <div className="px-2 pb-1 text-[11px] font-medium text-zinc-500">{t.directMessages}</div>
           {dmThreads.length === 0 ? (
             <div className="px-2 py-4 text-xs text-zinc-500">
-              Inicie uma conversa privada com um amigo ou membro.
+              {t.emptyChatSubtitle}
             </div>
           ) : (
             dmThreads.map((thread) => {
@@ -184,14 +193,17 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                   }`}
                 >
                   <Avatar
-                    name={peer?.displayName || 'Usuário'}
+                    name={peer?.displayName || 'ZONE'}
                     src={peer?.avatarDataUrl}
                     size="sm"
                     presence={presence}
                   />
                   <div className="min-w-0 flex-1">
                     <div className="text-xs font-medium text-zinc-200 truncate">
-                      {peer?.displayName || 'Usuário'}
+                      {peer?.displayName || 'User'}{' '}
+                      {peer?.tag && (
+                        <span className="text-[10px] font-mono text-zinc-500">{peer.tag}</span>
+                      )}
                     </div>
                     {thread.lastMessagePreview && (
                       <div className="text-[11px] text-zinc-500 truncate">
@@ -215,14 +227,19 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
               presence={currentUser.presence}
             />
             <div className="min-w-0">
-              <div className="text-xs font-semibold text-white truncate">{currentUser.displayName}</div>
+              <div className="text-xs font-semibold text-white truncate">
+                {currentUser.displayName}{' '}
+                {currentUser.tag && (
+                  <span className="text-[10px] font-mono text-zinc-500">{currentUser.tag}</span>
+                )}
+              </div>
               <div className="text-[11px] text-zinc-400 truncate">@{currentUser.username}</div>
             </div>
           </div>
           <button
             type="button"
             onClick={onOpenUserSettings}
-            title="Configurações"
+            title={t.userSettings}
             className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/8"
           >
             <Settings className="w-4 h-4" />
@@ -230,7 +247,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
         </div>
       </aside>
 
-      {/* Main Content: Either DM Conversation or Friends Dashboard */}
+      {/* Main Content */}
       {activeDmPeerUid && activeDmPeer ? (
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           <header className="h-14 px-5 border-b border-white/8 bg-[#0E0F14]/90 backdrop-blur-md flex items-center justify-between gap-4 shrink-0">
@@ -243,11 +260,14 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
               />
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-white truncate">
-                  {activeDmPeer.displayName}
+                  {activeDmPeer.displayName}{' '}
+                  {activeDmPeer.tag && (
+                    <span className="text-xs font-mono text-zinc-500">{activeDmPeer.tag}</span>
+                  )}
                 </div>
                 <div className="text-[11px] text-zinc-400 truncate">
                   {activeDmPeer.customStatus ||
-                    presenceLabel(getEffectivePresence(activeDmPeer.uid, activeDmPeer))}
+                    presenceLabel(getEffectivePresence(activeDmPeer.uid, activeDmPeer), t)}
                 </div>
               </div>
             </div>
@@ -257,13 +277,15 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
               className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-rose-500/15 border border-white/10 text-xs text-zinc-300 hover:text-rose-300 flex items-center gap-1.5 transition-colors whitespace-nowrap"
             >
               <Ban className="w-3.5 h-3.5" />
-              Bloquear
+              {t.blockBtn}
             </button>
           </header>
 
           <ChatArea
             channelKey={`dm_${activeDmPeerUid}`}
-            placeholder={`Conversar com ${activeDmPeer.displayName}`}
+            threadId={activeThreadId}
+            usingStaticFallback={usingStaticFallback}
+            placeholder={`${t.chatPlaceholder} ${activeDmPeer.displayName}`}
             messages={dmMessages}
             reactions={dmReactions}
             currentUser={currentUser}
@@ -278,20 +300,20 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
         </div>
       ) : (
         <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-[#0B0C10]">
-          {/* Friends Top Bar */}
+          {/* Contacts Top Bar */}
           <header className="h-14 px-5 border-b border-white/8 flex items-center gap-4 overflow-x-auto shrink-0">
             <div className="flex items-center gap-2 text-sm font-semibold text-white shrink-0">
-              <Users className="w-4 h-4 text-indigo-400" />
-              <span>Amigos</span>
+              <Users className="w-4 h-4 text-blue-400" />
+              <span>{t.friendsAndDmsTitle}</span>
             </div>
             <div className="h-4 w-px bg-white/10 shrink-0" />
             <div className="flex items-center gap-1.5">
               {(
                 [
-                  { id: 'online', label: 'Disponíveis' },
-                  { id: 'all', label: 'Todos' },
-                  { id: 'pending', label: `Pendentes (${pendingRequests.length})` },
-                  { id: 'blocked', label: `Bloqueados (${blockedUids.length})` },
+                  { id: 'online', label: t.friendsOnlineTab },
+                  { id: 'all', label: t.friendsAllTab },
+                  { id: 'pending', label: `${t.friendsPendingTab} (${pendingRequests.length})` },
+                  { id: 'blocked', label: `${t.friendsBlockedTab} (${blockedUids.length})` },
                 ] as { id: FriendsTab; label: string }[]
               ).map((item) => (
                 <button
@@ -317,20 +339,20 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                 }`}
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                Adicionar Amigo
+                {t.friendsAddTab}
               </button>
             </div>
           </header>
 
-          {/* Friends Body */}
+          {/* Contacts Body */}
           <div className="flex-1 overflow-y-auto p-6 max-w-4xl w-full mx-auto">
             {tab === 'add' && (
               <div className="rounded-2xl border border-white/10 bg-[#111319] p-6">
                 <h3 className="font-display text-lg font-semibold text-white mb-1">
-                  Adicionar por nome de usuário
+                  {t.addFriendBtn}
                 </h3>
                 <p className="text-xs text-zinc-400 mb-5">
-                  Digite o identificador (@usuario) do participante para enviar uma solicitação de amizade.
+                  @{currentUser.username} {currentUser.tag}
                 </p>
 
                 <form onSubmit={handleAddFriendSubmit} className="flex flex-col sm:flex-row gap-3">
@@ -338,15 +360,15 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                     type="text"
                     value={addUsername}
                     onChange={(e) => setAddUsername(e.target.value)}
-                    placeholder="ex: marina.silva"
-                    className="flex-1 px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white placeholder:text-zinc-500 focus:border-indigo-500"
+                    placeholder="@handle"
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white placeholder:text-zinc-500 focus:border-blue-500"
                   />
                   <button
                     type="submit"
                     disabled={addBusy || !addUsername.trim()}
-                    className="px-5 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-medium transition-colors disabled:opacity-50 whitespace-nowrap"
+                    className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors disabled:opacity-50 whitespace-nowrap"
                   >
-                    Enviar solicitação
+                    {t.addFriendBtn}
                   </button>
                 </form>
 
@@ -361,11 +383,6 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                     {addFeedback.text}
                   </div>
                 )}
-
-                <div className="mt-5 pt-4 border-t border-white/8 text-xs text-zinc-400">
-                  Seu usuário atual é{' '}
-                  <span className="font-mono text-zinc-200">@{currentUser.username}</span>.
-                </div>
               </div>
             )}
 
@@ -377,27 +394,20 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Buscar amigos..."
+                    placeholder="..."
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white placeholder:text-zinc-500"
                   />
                 </div>
 
                 {filteredFriends.length === 0 ? (
                   <div className="rounded-2xl border border-white/8 bg-[#111319] p-10 text-center">
-                    <p className="text-sm text-zinc-300 font-medium">
-                      {tab === 'online'
-                        ? 'Nenhum amigo disponível no momento.'
-                        : 'Sua lista de amigos está vazia.'}
-                    </p>
-                    <p className="text-xs text-zinc-500 mt-1 mb-4">
-                      Adicione amigos usando o @usuário deles ou clique em membros dentro de um servidor.
-                    </p>
+                    <p className="text-sm text-zinc-300 font-medium">{t.noParticipantsYet}</p>
                     <button
                       type="button"
                       onClick={() => setTab('add')}
-                      className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-medium"
+                      className="mt-4 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium"
                     >
-                      Adicionar Amigo
+                      {t.addFriendBtn}
                     </button>
                   </div>
                 ) : (
@@ -411,18 +421,23 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <Avatar
-                              name={profile?.displayName || 'Amigo'}
+                              name={profile?.displayName || 'ZONE'}
                               src={profile?.avatarDataUrl}
                               size="md"
                               presence={presence}
                             />
                             <div className="min-w-0">
                               <div className="text-sm font-medium text-white truncate">
-                                {profile?.displayName || 'Usuário'}
+                                {profile?.displayName || 'User'}{' '}
+                                {profile?.tag && (
+                                  <span className="text-xs font-mono text-zinc-500">
+                                    {profile.tag}
+                                  </span>
+                                )}
                               </div>
                               <div className="text-xs text-zinc-400 truncate">
-                                @{profile?.username || 'usuario'} ·{' '}
-                                {profile?.customStatus || presenceLabel(presence)}
+                                @{profile?.username || 'user'} ·{' '}
+                                {profile?.customStatus || presenceLabel(presence, t)}
                               </div>
                             </div>
                           </div>
@@ -431,15 +446,15 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                             <button
                               type="button"
                               onClick={() => onOpenDmWith(peerUid)}
-                              title="Enviar mensagem privada"
-                              className="p-2 rounded-xl bg-white/5 hover:bg-indigo-500/20 text-zinc-200 hover:text-indigo-200 transition-colors"
+                              title={t.directMessageBtn}
+                              className="p-2 rounded-xl bg-white/5 hover:bg-blue-500/20 text-zinc-200 hover:text-blue-200 transition-colors"
                             >
                               <MessageSquare className="w-4 h-4" />
                             </button>
                             <button
                               type="button"
                               onClick={() => onToggleBlockUser(peerUid)}
-                              title="Bloquear usuário"
+                              title={t.blockBtn}
                               className="p-2 rounded-xl bg-white/5 hover:bg-rose-500/15 text-zinc-400 hover:text-rose-300 transition-colors"
                             >
                               <Ban className="w-4 h-4" />
@@ -447,7 +462,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                             <button
                               type="button"
                               onClick={() => onRemoveFriendship(friendship.id)}
-                              title="Remover amigo"
+                              title={t.deleteAction}
                               className="p-2 rounded-xl bg-white/5 hover:bg-rose-500/15 text-zinc-400 hover:text-rose-300 transition-colors"
                             >
                               <UserX className="w-4 h-4" />
@@ -465,7 +480,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
               <div className="space-y-3">
                 {pendingRequests.length === 0 ? (
                   <div className="rounded-2xl border border-white/8 bg-[#111319] p-10 text-center text-sm text-zinc-400">
-                    Nenhuma solicitação de amizade pendente.
+                    {t.noParticipantsYet}
                   </div>
                 ) : (
                   <div className="divide-y divide-white/8 rounded-2xl border border-white/10 bg-[#111319]">
@@ -481,17 +496,15 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <Avatar
-                              name={other?.displayName || 'Usuário'}
+                              name={other?.displayName || 'ZONE'}
                               src={other?.avatarDataUrl}
                               size="md"
                             />
                             <div className="min-w-0">
                               <div className="text-sm font-medium text-white truncate">
-                                {other?.displayName || 'Usuário'}
+                                {other?.displayName || otherUid}
                               </div>
-                              <div className="text-xs text-zinc-400">
-                                {incoming ? 'Solicitação recebida' : 'Solicitação enviada'}
-                              </div>
+                              <div className="text-xs text-zinc-400">@{other?.username}</div>
                             </div>
                           </div>
 
@@ -503,14 +516,14 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                                   onClick={() => onRespondFriendRequest(req.id, true)}
                                   className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-xs font-semibold flex items-center gap-1"
                                 >
-                                  <Check className="w-3.5 h-3.5" /> Aceitar
+                                  <Check className="w-3.5 h-3.5" /> {t.saveAction}
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => onRespondFriendRequest(req.id, false)}
                                   className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-rose-500/20 text-zinc-300 hover:text-rose-200 text-xs font-medium flex items-center gap-1"
                                 >
-                                  <X className="w-3.5 h-3.5" /> Recusar
+                                  <X className="w-3.5 h-3.5" /> {t.cancelAction}
                                 </button>
                               </>
                             ) : (
@@ -519,7 +532,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                                 onClick={() => onRemoveFriendship(req.id)}
                                 className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-300 text-xs"
                               >
-                                Cancelar
+                                {t.cancelAction}
                               </button>
                             )}
                           </div>
@@ -535,7 +548,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
               <div className="space-y-3">
                 {blockedUids.length === 0 ? (
                   <div className="rounded-2xl border border-white/8 bg-[#111319] p-10 text-center text-sm text-zinc-400">
-                    Nenhum usuário bloqueado.
+                    {t.noParticipantsYet}
                   </div>
                 ) : (
                   <div className="divide-y divide-white/8 rounded-2xl border border-white/10 bg-[#111319]">
@@ -545,7 +558,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                         <div key={bUid} className="flex items-center justify-between gap-4 px-4 py-3.5">
                           <div className="flex items-center gap-3 min-w-0">
                             <Avatar
-                              name={profile?.displayName || 'Usuário'}
+                              name={profile?.displayName || 'ZONE'}
                               src={profile?.avatarDataUrl}
                               size="md"
                             />
@@ -553,7 +566,6 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                               <div className="text-sm font-medium text-white truncate">
                                 {profile?.displayName || bUid}
                               </div>
-                              <div className="text-xs text-zinc-500">Bloqueado</div>
                             </div>
                           </div>
                           <button
@@ -562,7 +574,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                             className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-zinc-200 flex items-center gap-1.5"
                           >
                             <ShieldOff className="w-3.5 h-3.5" />
-                            Desbloquear
+                            {t.unblockBtn}
                           </button>
                         </div>
                       );
