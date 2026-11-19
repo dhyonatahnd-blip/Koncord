@@ -47,6 +47,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
         videoRef.current.srcObject = activeFeed.stream;
       }
       videoRef.current.muted = activeFeed.isLocal || viewerMuted;
+      videoRef.current.play().catch(() => {});
     }
   }, [activeFeed, viewerMuted, isFullscreen]);
 

@@ -153,6 +153,7 @@ export interface NotificationItem {
   linkServerId: string;
   linkChannelId: string;
   linkUserId: string;
+  inviteCode?: string;
   read: boolean;
   createdAt: unknown;
 }

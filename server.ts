@@ -202,6 +202,7 @@ interface InstantNotification {
   linkServerId: string;
   linkChannelId: string;
   linkUserId: string;
+  inviteCode?: string;
   read: boolean;
   createdAt: number;
 }
@@ -353,6 +354,14 @@ function makeInvite(): string {
   let out = '';
   for (let i = 0; i < 8; i++) out += chars[Math.floor(Math.random() * chars.length)];
   return out;
+}
+
+function extractRoomLookupCode(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  const match = trimmed.match(/[?&](?:room|invite)=([A-Za-z0-9_-]+)/i);
+  if (match && match[1]) return match[1].toUpperCase();
+  return trimmed.toUpperCase();
 }
 
 function initialsFrom(name: string): string {
@@ -928,10 +937,15 @@ async function startServer() {
           }
 
           // Optional initial invite code passed from entry URL/form
-          const initialInvite = String(msg.inviteCode || '').trim().toUpperCase();
+          const initialInvite = extractRoomLookupCode(String(msg.inviteCode || ''));
+          let joinedViaInviteId: string | null = null;
+          let inviteNotFound = false;
           if (initialInvite) {
             const invitedSrv = Array.from(instantServers.values()).find(
-              (s) => s.inviteCode === initialInvite
+              (s) =>
+                s.inviteCode.toUpperCase() === initialInvite ||
+                (s.visibility === 'public' &&
+                  (s.id.toUpperCase() === initialInvite || s.name.trim().toUpperCase() === initialInvite))
             );
             if (invitedSrv) {
               const srvMembers = instantMembers.get(invitedSrv.id) || [];
@@ -939,11 +953,21 @@ async function startServer() {
                 srvMembers.push({ uid, serverId: invitedSrv.id, role: 'member', joinedAt: now });
                 instantMembers.set(invitedSrv.id, srvMembers);
               }
-              sendToSocket(ws, { type: 'instant:server-joined', serverId: invitedSrv.id });
+              joinedViaInviteId = invitedSrv.id;
+            } else {
+              inviteNotFound = true;
             }
           }
 
           pushInstantSyncToUsers();
+          if (joinedViaInviteId) {
+            sendToSocket(ws, { type: 'instant:server-joined', serverId: joinedViaInviteId });
+          } else if (inviteNotFound) {
+            sendToSocket(ws, {
+              type: 'instant:error',
+              message: 'Sala ou link de convite não encontrado (verifique se a sala ainda está aberta).',
+            });
+          }
         }
         return;
       }
@@ -1052,17 +1076,22 @@ async function startServer() {
             updatedAt: now,
           },
         ]);
-        sendToSocket(ws, { type: 'instant:server-created', serverId });
         pushInstantSyncToUsers();
+        sendToSocket(ws, { type: 'instant:server-created', serverId });
         return;
       }
 
       if (type === 'instant:server-join') {
-        const code = String(msg.inviteCode || '').trim().toUpperCase();
+        const code = extractRoomLookupCode(String(msg.inviteCode || ''));
         const serverIdParam = String(msg.serverId || '').trim();
         const targetSrv = serverIdParam
           ? instantServers.get(serverIdParam)
-          : Array.from(instantServers.values()).find((s) => s.inviteCode === code);
+          : Array.from(instantServers.values()).find(
+              (s) =>
+                s.inviteCode.toUpperCase() === code ||
+                (s.visibility === 'public' &&
+                  (s.id.toUpperCase() === code || s.name.trim().toUpperCase() === code))
+            );
         if (!targetSrv || (serverIdParam && targetSrv.visibility !== 'public')) {
           sendToSocket(ws, { type: 'instant:error', message: 'Sala não encontrada ou convite inválido.' });
           return;
@@ -1072,8 +1101,8 @@ async function startServer() {
           list.push({ uid: meta.uid, serverId: targetSrv.id, role: 'member', joinedAt: Date.now() });
           instantMembers.set(targetSrv.id, list);
         }
-        sendToSocket(ws, { type: 'instant:server-joined', serverId: targetSrv.id });
         pushInstantSyncToUsers();
+        sendToSocket(ws, { type: 'instant:server-joined', serverId: targetSrv.id });
         return;
       }
 
@@ -1347,11 +1376,25 @@ async function startServer() {
       }
 
       if (type === 'instant:friend-request') {
-        const username = String(msg.username || '').replace(/^@/, '').toLowerCase();
+        const rawQuery = String(msg.username || '').trim();
+        const cleanQuery = rawQuery.replace(/^@/, '').toLowerCase();
         const targetUidInput = String(msg.targetUid || '');
         const target = targetUidInput
           ? instantUsers.get(targetUidInput)
-          : Array.from(instantUsers.values()).find((u) => u.username === username);
+          : Array.from(instantUsers.values()).find((u) => {
+              if (u.uid === meta.uid) return false;
+              const uname = u.username.toLowerCase();
+              const dname = u.displayName.toLowerCase();
+              const tag = (u.tag || '').toLowerCase();
+              const full = `${dname}${tag}`;
+              return (
+                uname === cleanQuery ||
+                dname === cleanQuery ||
+                tag === cleanQuery ||
+                tag === `#${cleanQuery}` ||
+                full === cleanQuery
+              );
+            });
         if (!target || target.uid === meta.uid) {
           sendToSocket(ws, { type: 'instant:error', message: 'Participante não encontrado na sessão atual.' });
           return;
@@ -1551,6 +1594,7 @@ async function startServer() {
           linkServerId: srv.id,
           linkChannelId: '',
           linkUserId: meta.uid,
+          inviteCode: srv.inviteCode,
           read: false,
           createdAt: Date.now(),
         });
@@ -1562,6 +1606,12 @@ async function startServer() {
       // --- Shared Signaling & Presence Handlers ---
       if (type === 'presence:set') {
         meta.presence = (msg.presence as ClientMeta['presence']) || 'online';
+        const user = instantUsers.get(meta.uid);
+        if (user) {
+          user.presence = meta.presence;
+          user.updatedAt = Date.now();
+          pushInstantSyncToUsers();
+        }
         broadcastAll({
           type: 'presence:update',
           uid: meta.uid,
@@ -1743,6 +1793,12 @@ async function startServer() {
           sockets.delete(ws);
           if (sockets.size === 0) {
             userSockets.delete(meta.uid);
+            const u = instantUsers.get(meta.uid);
+            if (u) {
+              u.presence = 'invisible';
+              u.updatedAt = Date.now();
+              pushInstantSyncToUsers();
+            }
             broadcastAll({
               type: 'presence:update',
               uid: meta.uid,

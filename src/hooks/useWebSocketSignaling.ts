@@ -16,6 +16,7 @@ import {
 } from '../types';
 
 import { LocalInstantHub } from '../lib/localInstantHub';
+import { getApiBaseUrl } from '../lib/validation';
 
 export type SignalListener = (msg: Record<string, unknown>) => void;
 
@@ -77,6 +78,12 @@ export function useWebSocketSignaling(params: {
   const listenersRef = useRef<Set<SignalListener>>(new Set());
   const retryCountRef = useRef(0);
   const hasOpenedRef = useRef(false);
+  const backendConfirmedRef = useRef<boolean | null>(null);
+
+  const latestInviteRef = useRef(initialInviteCode || '');
+  latestInviteRef.current = initialInviteCode || '';
+  const latestProfileRef = useRef({ displayName, username, avatarDataUrl, presence });
+  latestProfileRef.current = { displayName, username, avatarDataUrl, presence };
 
   const [connected, setConnected] = useState(false);
   const [usingStaticFallback, setUsingStaticFallback] = useState(false);
@@ -216,12 +223,14 @@ export function useWebSocketSignaling(params: {
 
     const activateStaticFallback = () => {
       if (disposed || localHubRef.current) return;
+      const prof = latestProfileRef.current;
       const hub = new LocalInstantHub({
         uid,
-        displayName,
-        username,
-        avatarDataUrl,
-        presence,
+        displayName: prof.displayName,
+        username: prof.username,
+        avatarDataUrl: prof.avatarDataUrl,
+        presence: prof.presence,
+        initialInviteCode: latestInviteRef.current,
         isInstant,
         onMessage: handleIncomingMessage,
       });
@@ -245,6 +254,28 @@ export function useWebSocketSignaling(params: {
       };
     }
 
+    const checkBackendExists = async (): Promise<boolean> => {
+      if (customWsUrl) return true;
+      if (backendConfirmedRef.current !== null) return backendConfirmedRef.current;
+      try {
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => controller.abort(), 2500);
+        const resp = await fetch(`${getApiBaseUrl()}/api/health`, { signal: controller.signal });
+        window.clearTimeout(timer);
+        if (!resp.ok) {
+          backendConfirmedRef.current = false;
+          return false;
+        }
+        const json = (await resp.json().catch(() => null)) as { ok?: boolean; service?: string } | null;
+        const ok = Boolean(json?.ok && json?.service === 'zone-backend');
+        backendConfirmedRef.current = ok;
+        return ok;
+      } catch {
+        backendConfirmedRef.current = false;
+        return false;
+      }
+    };
+
     const connect = () => {
       if (disposed) return;
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -253,7 +284,11 @@ export function useWebSocketSignaling(params: {
       try {
         ws = new WebSocket(wsUrl);
       } catch {
-        activateStaticFallback();
+        checkBackendExists().then((hasBackend) => {
+          if (disposed) return;
+          if (!hasBackend) activateStaticFallback();
+          else reconnectTimerRef.current = window.setTimeout(connect, 1500);
+        });
         return;
       }
       wsRef.current = ws;
@@ -264,6 +299,7 @@ export function useWebSocketSignaling(params: {
           return;
         }
         hasOpenedRef.current = true;
+        backendConfirmedRef.current = true;
         retryCountRef.current = 0;
         setUsingStaticFallback(false);
         if (localHubRef.current) {
@@ -271,15 +307,16 @@ export function useWebSocketSignaling(params: {
           localHubRef.current = null;
         }
         setConnected(true);
+        const prof = latestProfileRef.current;
         ws.send(
           JSON.stringify({
             type: 'auth:hello',
             uid,
-            displayName,
-            username,
-            avatarDataUrl,
-            presence,
-            inviteCode: initialInviteCode || '',
+            displayName: prof.displayName,
+            username: prof.username,
+            avatarDataUrl: prof.avatarDataUrl,
+            presence: prof.presence,
+            inviteCode: latestInviteRef.current,
             isInstant,
           })
         );
@@ -304,7 +341,7 @@ export function useWebSocketSignaling(params: {
         handleIncomingMessage(msg);
       };
 
-      ws.onclose = () => {
+      ws.onclose = async () => {
         setConnected(false);
         if (pingTimerRef.current) {
           window.clearInterval(pingTimerRef.current);
@@ -312,9 +349,13 @@ export function useWebSocketSignaling(params: {
         }
         if (!disposed) {
           if (!hasOpenedRef.current && !customWsUrl) {
-            // Static hosts like Netlify have no /ws endpoint; switch cleanly to local browser sync
-            activateStaticFallback();
-            return;
+            const hasBackend = await checkBackendExists();
+            if (disposed) return;
+            if (!hasBackend) {
+              // Static hosts like Netlify without VITE_WS_URL have no /ws endpoint
+              activateStaticFallback();
+              return;
+            }
           }
           const delay = Math.min(8000, 1000 * Math.pow(1.5, retryCountRef.current));
           retryCountRef.current += 1;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   LocalTrackPublication,
   Participant,
@@ -166,7 +166,10 @@ export function useWebRTC(params: {
     async (targetUid: string, bundle: PeerConnectionBundle, channelId: string) => {
       try {
         attachLocalAndRemoteTracks(bundle.pc);
-        const offer = await bundle.pc.createOffer();
+        const offer = await bundle.pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true,
+        });
         await bundle.pc.setLocalDescription(offer);
         sendSignal({
           type: 'rtc:offer',
@@ -210,8 +213,7 @@ export function useWebRTC(params: {
       };
 
       pc.ontrack = (event) => {
-        const incomingStream = event.streams[0];
-        if (!incomingStream) return;
+        const incomingStream = event.streams[0] || new MediaStream([event.track]);
 
         if (event.track.kind === 'audio') {
           monitorAudioLevel(targetUid, incomingStream);
@@ -363,6 +365,14 @@ export function useWebRTC(params: {
         bundle.screenStreamId = sdpPayload.screenStreamId;
 
         try {
+          const polite = (uid || '') < fromUid;
+          const offerCollision = bundle.pc.signalingState !== 'stable';
+          if (offerCollision) {
+            if (!polite) {
+              return;
+            }
+            await bundle.pc.setLocalDescription({ type: 'rollback' });
+          }
           await bundle.pc.setRemoteDescription(new RTCSessionDescription(sdpPayload.description));
           attachLocalAndRemoteTracks(bundle.pc);
           const answer = await bundle.pc.createAnswer();
@@ -903,31 +913,59 @@ export function useWebRTC(params: {
     };
   }, []);
 
-  return {
-    activeRoom,
-    livekitActive,
-    peers,
-    remoteMedia,
-    peerVolumes,
-    speakingUids,
-    micMuted,
-    camEnabled,
-    screenSharing,
-    screenHasSystemAudio,
-    mediaError,
-    screenShareBlockedByIframe,
-    localCamStream,
-    localScreenStream,
-    joinRoom,
-    leaveRoom,
-    toggleMic,
-    toggleCamera,
-    startScreenShare,
-    stopScreenShare,
-    setVolumeForPeer,
-    clearMediaError: () => {
-      setMediaError(null);
-      setScreenShareBlockedByIframe(false);
-    },
-  };
+  const clearMediaError = useCallback(() => {
+    setMediaError(null);
+    setScreenShareBlockedByIframe(false);
+  }, []);
+
+  return useMemo(
+    () => ({
+      activeRoom,
+      livekitActive,
+      peers,
+      remoteMedia,
+      peerVolumes,
+      speakingUids,
+      micMuted,
+      camEnabled,
+      screenSharing,
+      screenHasSystemAudio,
+      mediaError,
+      screenShareBlockedByIframe,
+      localCamStream,
+      localScreenStream,
+      joinRoom,
+      leaveRoom,
+      toggleMic,
+      toggleCamera,
+      startScreenShare,
+      stopScreenShare,
+      setVolumeForPeer,
+      clearMediaError,
+    }),
+    [
+      activeRoom,
+      livekitActive,
+      peers,
+      remoteMedia,
+      peerVolumes,
+      speakingUids,
+      micMuted,
+      camEnabled,
+      screenSharing,
+      screenHasSystemAudio,
+      mediaError,
+      screenShareBlockedByIframe,
+      localCamStream,
+      localScreenStream,
+      joinRoom,
+      leaveRoom,
+      toggleMic,
+      toggleCamera,
+      startScreenShare,
+      stopScreenShare,
+      setVolumeForPeer,
+      clearMediaError,
+    ]
+  );
 }

@@ -62,6 +62,14 @@ function initialsFrom(name: string): string {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
+function extractRoomLookupCode(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  const match = trimmed.match(/[?&](?:room|invite)=([A-Za-z0-9_-]+)/i);
+  if (match && match[1]) return match[1].toUpperCase();
+  return trimmed.toUpperCase();
+}
+
 function retentionToMs(retention?: MessageRetention): number | null {
   if (retention === '5m') return 5 * 60 * 1000;
   if (retention === '15m') return 15 * 60 * 1000;
@@ -296,16 +304,20 @@ export class LocalInstantHub {
         state.membersByServer[DEFAULT_SERVER_ID] = members;
       }
 
-      const initCode = String(params.initialInviteCode || '').trim().toUpperCase();
+      const initCode = extractRoomLookupCode(String(params.initialInviteCode || ''));
       if (initCode) {
-        const invitedSrv = state.servers.find((s) => s.inviteCode === initCode);
+        const invitedSrv = state.servers.find(
+          (s) =>
+            s.inviteCode.toUpperCase() === initCode ||
+            ((s.visibility ?? 'public') === 'public' &&
+              (s.id.toUpperCase() === initCode || s.name.trim().toUpperCase() === initCode))
+        );
         if (invitedSrv) {
           const srvMembers = state.membersByServer[invitedSrv.id] || [];
           if (!srvMembers.some((m) => m.uid === this.uid)) {
             srvMembers.push({ uid: this.uid, serverId: invitedSrv.id, role: 'member', joinedAt: now });
             state.membersByServer[invitedSrv.id] = srvMembers;
           }
-          this.emitLocal({ type: 'instant:server-joined', serverId: invitedSrv.id });
         }
       }
     }
@@ -315,6 +327,18 @@ export class LocalInstantHub {
     this.emitLocal({ type: 'presence:snapshot', presences: state.presences });
     if (this.isInstant) {
       this.emitLocal(this.buildSnapshotForUser(state, this.uid));
+      const initCode = extractRoomLookupCode(String(params.initialInviteCode || ''));
+      if (initCode) {
+        const invitedSrv = state.servers.find(
+          (s) =>
+            s.inviteCode.toUpperCase() === initCode ||
+            ((s.visibility ?? 'public') === 'public' &&
+              (s.id.toUpperCase() === initCode || s.name.trim().toUpperCase() === initCode))
+        );
+        if (invitedSrv) {
+          this.emitLocal({ type: 'instant:server-joined', serverId: invitedSrv.id });
+        }
+      }
     }
     this.broadcast({ type: 'hub:sync', uid: this.uid });
 
@@ -713,11 +737,16 @@ export class LocalInstantHub {
     }
 
     if (type === 'instant:server-join') {
-      const code = String(msg.inviteCode || '').trim().toUpperCase();
+      const code = extractRoomLookupCode(String(msg.inviteCode || ''));
       const serverIdParam = String(msg.serverId || '').trim();
       const targetSrv = serverIdParam
         ? state.servers.find((s) => s.id === serverIdParam && (s.visibility ?? 'public') === 'public')
-        : state.servers.find((s) => s.inviteCode === code);
+        : state.servers.find(
+            (s) =>
+              s.inviteCode.toUpperCase() === code ||
+              ((s.visibility ?? 'public') === 'public' &&
+                (s.id.toUpperCase() === code || s.name.trim().toUpperCase() === code))
+          );
       if (!targetSrv) {
         this.emitLocal({ type: 'instant:error', message: 'Sala não encontrada ou convite inválido.' });
         return;
@@ -965,11 +994,22 @@ export class LocalInstantHub {
     }
 
     if (type === 'instant:friend-request') {
-      const uname = String(msg.username || '').replace(/^@/, '').toLowerCase();
+      const uname = String(msg.username || '').trim().replace(/^@/, '').toLowerCase();
       const targetUid = String(msg.targetUid || '');
       const target = targetUid
         ? state.usersByUid[targetUid]
-        : Object.values(state.usersByUid).find((u) => u.username === uname);
+        : Object.values(state.usersByUid).find((u) => {
+            if (u.uid === this.uid) return false;
+            const dname = u.displayName.toLowerCase();
+            const tag = (u.tag || '').toLowerCase();
+            return (
+              u.username.toLowerCase() === uname ||
+              dname === uname ||
+              tag === uname ||
+              tag === `#${uname}` ||
+              `${dname}${tag}` === uname
+            );
+          });
       if (!target || target.uid === this.uid) {
         this.emitLocal({ type: 'instant:error', message: 'Participante não encontrado.' });
         return;

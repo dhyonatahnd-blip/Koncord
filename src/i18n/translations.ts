@@ -238,6 +238,17 @@ export interface TranslationStrings {
   alertFileExpiredBody: string;
   alertRoomClosedTitle: string;
   alertRoomClosedBody: string;
+
+  // Discovery & Connection
+  onlineNowInZone: string;
+  inviteToRoomBtn: string;
+  inviteSentNotice: string;
+  discoverParticipantsTitle: string;
+  searchParticipantsPlaceholder: string;
+  participantNotFound: string;
+  searchRoomsPlaceholder: string;
+  localModeBanner: string;
+  connectingRealtimeNotice: string;
 }
 
 export const TRANSLATIONS: Record<LanguageCode, TranslationStrings> = {
@@ -477,6 +488,17 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationStrings> = {
     alertFileExpiredBody: 'Um arquivo temporário atingiu 5 minutos e foi excluído do servidor.',
     alertRoomClosedTitle: 'Sala encerrada',
     alertRoomClosedBody: 'Esta sala temporária foi encerrada pelo criador.',
+
+    onlineNowInZone: 'Online na ZONE',
+    inviteToRoomBtn: 'Convidar para sala',
+    inviteSentNotice: 'Convite enviado para esta sala!',
+    discoverParticipantsTitle: 'Participantes online agora',
+    searchParticipantsPlaceholder: 'Buscar por apelido, #TAG ou @handle...',
+    participantNotFound: 'Participante não encontrado online no momento.',
+    searchRoomsPlaceholder: 'Buscar sala pública por nome ou código...',
+    localModeBanner:
+      'Modo local (apenas este navegador): nenhum servidor WebSocket conectado. Para conectar outras pessoas, configure VITE_WS_URL ou abra a URL com backend ativo.',
+    connectingRealtimeNotice: 'Conectando ao servidor em tempo real...',
   },
 
   en: {
@@ -715,6 +737,17 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationStrings> = {
     alertFileExpiredBody: 'A temporary file reached 5 minutes and was removed from the server.',
     alertRoomClosedTitle: 'Room closed',
     alertRoomClosedBody: 'This temporary room was closed by its owner.',
+
+    onlineNowInZone: 'Online in ZONE',
+    inviteToRoomBtn: 'Invite to room',
+    inviteSentNotice: 'Room invite sent!',
+    discoverParticipantsTitle: 'Participants online now',
+    searchParticipantsPlaceholder: 'Search by nickname, #TAG, or @handle...',
+    participantNotFound: 'Participant not found online right now.',
+    searchRoomsPlaceholder: 'Search public room by name or code...',
+    localModeBanner:
+      'Local browser-only mode: no WebSocket backend connected. To connect with other people, configure VITE_WS_URL or use a hosted backend URL.',
+    connectingRealtimeNotice: 'Connecting to real-time server...',
   },
 
   ru: {
@@ -953,5 +986,16 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationStrings> = {
     alertFileExpiredBody: 'Срок действия файла (5 минут) истёк; он удалён с сервера.',
     alertRoomClosedTitle: 'Комната закрыта',
     alertRoomClosedBody: 'Эта временная комната была закрыта создателем.',
+
+    onlineNowInZone: 'Онлайн в ZONE',
+    inviteToRoomBtn: 'Пригласить в комнату',
+    inviteSentNotice: 'Приглашение отправлено!',
+    discoverParticipantsTitle: 'Участники онлайн сейчас',
+    searchParticipantsPlaceholder: 'Поиск по никнейму, #TAG или @handle...',
+    participantNotFound: 'Участник сейчас не найден в сети.',
+    searchRoomsPlaceholder: 'Поиск публичной комнаты по названию или коду...',
+    localModeBanner:
+      'Локальный режим (только этот браузер): сервер WebSocket не подключён. Чтобы видеть других людей, укажите VITE_WS_URL или используйте активный сервер.',
+    connectingRealtimeNotice: 'Подключение к серверу реального времени...',
   },
 };

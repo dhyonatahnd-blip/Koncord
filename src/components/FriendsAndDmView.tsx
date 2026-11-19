@@ -117,6 +117,12 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
     );
   });
 
+  const onlineUsersInZone = Object.values(usersByUid).filter((u) => {
+    if (u.uid === currentUser.uid) return false;
+    if (blockedUids.includes(u.uid)) return false;
+    return getEffectivePresence(u.uid, u) !== 'invisible';
+  });
+
   const handleAddFriendSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!addUsername.trim() || addBusy) return;
@@ -129,7 +135,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
     } catch (err) {
       setAddFeedback({
         type: 'err',
-        text: err instanceof Error ? err.message : t.tempFileOpenError,
+        text: err instanceof Error ? err.message : t.participantNotFound,
       });
     } finally {
       setAddBusy(false);
@@ -347,42 +353,145 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
           {/* Contacts Body */}
           <div className="flex-1 overflow-y-auto p-6 max-w-4xl w-full mx-auto">
             {tab === 'add' && (
-              <div className="rounded-2xl border border-white/10 bg-[#111319] p-6">
-                <h3 className="font-display text-lg font-semibold text-white mb-1">
-                  {t.addFriendBtn}
-                </h3>
-                <p className="text-xs text-zinc-400 mb-5">
-                  @{currentUser.username} {currentUser.tag}
-                </p>
-
-                <form onSubmit={handleAddFriendSubmit} className="flex flex-col sm:flex-row gap-3">
-                  <input
-                    type="text"
-                    value={addUsername}
-                    onChange={(e) => setAddUsername(e.target.value)}
-                    placeholder="@handle"
-                    className="flex-1 px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white placeholder:text-zinc-500 focus:border-blue-500"
-                  />
-                  <button
-                    type="submit"
-                    disabled={addBusy || !addUsername.trim()}
-                    className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors disabled:opacity-50 whitespace-nowrap"
-                  >
+              <div className="space-y-5">
+                <div className="rounded-2xl border border-white/10 bg-[#111319] p-6">
+                  <h3 className="font-display text-lg font-semibold text-white mb-1">
                     {t.addFriendBtn}
-                  </button>
-                </form>
+                  </h3>
+                  <p className="text-xs text-zinc-400 mb-5">
+                    {currentUser.displayName} {currentUser.tag} · @{currentUser.username}
+                  </p>
 
-                {addFeedback && (
-                  <div
-                    className={`mt-4 px-4 py-3 rounded-xl border text-xs ${
-                      addFeedback.type === 'ok'
-                        ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300'
-                        : 'bg-rose-500/10 border-rose-500/25 text-rose-300'
-                    }`}
-                  >
-                    {addFeedback.text}
+                  <form onSubmit={handleAddFriendSubmit} className="flex flex-col sm:flex-row gap-3">
+                    <input
+                      type="text"
+                      value={addUsername}
+                      onChange={(e) => setAddUsername(e.target.value)}
+                      placeholder={t.searchParticipantsPlaceholder}
+                      className="flex-1 px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white placeholder:text-zinc-500 focus:border-blue-500"
+                    />
+                    <button
+                      type="submit"
+                      disabled={addBusy || !addUsername.trim()}
+                      className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors disabled:opacity-50 whitespace-nowrap"
+                    >
+                      {t.addFriendBtn}
+                    </button>
+                  </form>
+
+                  {addFeedback && (
+                    <div
+                      className={`mt-4 px-4 py-3 rounded-xl border text-xs ${
+                        addFeedback.type === 'ok'
+                          ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300'
+                          : 'bg-rose-500/10 border-rose-500/25 text-rose-300'
+                      }`}
+                    >
+                      {addFeedback.text}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-[#111319] p-5">
+                  <div className="flex items-center justify-between gap-3 mb-4">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                      {t.discoverParticipantsTitle} ({onlineUsersInZone.length})
+                    </h4>
                   </div>
-                )}
+
+                  {(() => {
+                    const q = addUsername.trim().toLowerCase().replace(/^@/, '');
+                    const matching = onlineUsersInZone.filter((u) => {
+                      if (!q) return true;
+                      return (
+                        u.displayName.toLowerCase().includes(q) ||
+                        u.username.toLowerCase().includes(q) ||
+                        (u.tag || '').toLowerCase().includes(q) ||
+                        `${u.displayName}${u.tag || ''}`.toLowerCase().includes(q)
+                      );
+                    });
+                    if (matching.length === 0) {
+                      return (
+                        <div className="py-6 text-center text-xs text-zinc-500">
+                          {t.participantNotFound}
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="divide-y divide-white/8">
+                        {matching.map((u) => {
+                          const presence = getEffectivePresence(u.uid, u);
+                          const alreadyConnected = friendships.some(
+                            (f) => f.users.includes(u.uid) && f.status !== 'declined'
+                          );
+                          return (
+                            <div
+                              key={u.uid}
+                              className="flex items-center justify-between gap-3 py-3"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <Avatar
+                                  name={u.displayName}
+                                  src={u.avatarDataUrl}
+                                  size="md"
+                                  presence={presence}
+                                />
+                                <div className="min-w-0">
+                                  <div className="text-sm font-medium text-white truncate">
+                                    {u.displayName}{' '}
+                                    {u.tag && (
+                                      <span className="text-xs font-mono text-zinc-500">{u.tag}</span>
+                                    )}
+                                  </div>
+                                  <div className="text-xs text-zinc-400 truncate">
+                                    @{u.username} · {u.customStatus || presenceLabel(presence, t)}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenDmWith(u.uid)}
+                                  title={t.directMessageBtn}
+                                  className="px-3 py-1.5 rounded-xl bg-white/8 hover:bg-blue-500/20 text-zinc-200 hover:text-blue-200 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                                >
+                                  <MessageSquare className="w-3.5 h-3.5" />
+                                  {t.directMessageBtn}
+                                </button>
+                                {!alreadyConnected && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      setAddFeedback(null);
+                                      try {
+                                        await onSendFriendRequestByUsername(
+                                          u.tag ? `${u.displayName}${u.tag}` : u.username
+                                        );
+                                        setAddFeedback({ type: 'ok', text: t.friendRequestSent });
+                                      } catch (err) {
+                                        setAddFeedback({
+                                          type: 'err',
+                                          text:
+                                            err instanceof Error
+                                              ? err.message
+                                              : t.participantNotFound,
+                                        });
+                                      }
+                                    }}
+                                    className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-1.5 transition-colors"
+                                  >
+                                    <UserPlus className="w-3.5 h-3.5" />
+                                    {t.addFriendBtn}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             )}
 

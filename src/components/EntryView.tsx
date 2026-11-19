@@ -33,7 +33,7 @@ const LANGUAGES: Array<{ code: LanguageCode; label: string; short: string }> = [
 function extractInviteCode(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return '';
-  const match = trimmed.match(/[?&]room=([A-Za-z0-9_-]+)/i);
+  const match = trimmed.match(/[?&](?:room|invite)=([A-Za-z0-9_-]+)/i);
   if (match && match[1]) return match[1].toUpperCase().slice(0, 16);
   return trimmed.toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 16);
 }

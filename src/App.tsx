@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   Bell,
   ExternalLink,
   Globe,
@@ -117,6 +118,7 @@ function ZonePlatform() {
   const [activeDmPeerUid, setActiveDmPeerUid] = useState<string | null>(null);
   const [showMembersDrawer, setShowMembersDrawer] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [staticBannerDismissed, setStaticBannerDismissed] = useState(false);
 
   // Toasts & Modals
   const [toasts, setToasts] = useState<ToastAlert[]>([]);
@@ -244,6 +246,7 @@ function ZonePlatform() {
   );
 
   const {
+    connected,
     usingStaticFallback,
     livePresences,
     voiceRoster,
@@ -258,7 +261,7 @@ function ZonePlatform() {
     avatarDataUrl: fallbackPublicProfile?.avatarDataUrl || '',
     presence: fallbackPublicProfile?.presence || 'online',
     activeServerId,
-    initialInviteCode: zoneSession?.initialInviteCode || urlInviteCode,
+    initialInviteCode: urlInviteCode || zoneSession?.initialInviteCode || '',
     isInstant: true,
     alertText,
     onAlert: (alert) => {
@@ -267,6 +270,12 @@ function ZonePlatform() {
       }
     },
   });
+
+  useEffect(() => {
+    if (!usingStaticFallback) {
+      setStaticBannerDismissed(false);
+    }
+  }, [usingStaticFallback]);
 
   const effectivePublicProfile: UserPublic | null = zoneSession
     ? instantSnapshot?.usersByUid[zoneSession.uid] || fallbackPublicProfile
@@ -281,6 +290,12 @@ function ZonePlatform() {
     onAlert: pushToast,
   });
 
+  const rtcRef = useRef(rtc);
+  rtcRef.current = rtc;
+  const activeServerIdRef = useRef(activeServerId);
+  activeServerIdRef.current = activeServerId;
+  const pendingJoinedServerRef = useRef<string | null>(null);
+
   // Subscribe to server create/join/close events
   useEffect(() => {
     if (!zoneSession) return;
@@ -288,19 +303,20 @@ function ZonePlatform() {
       if (msg.type === 'instant:server-created' || msg.type === 'instant:server-joined') {
         const srvId = String(msg.serverId || '');
         if (srvId) {
+          pendingJoinedServerRef.current = srvId;
           setActiveServerId(srvId);
           setActiveMode('server');
         }
       } else if (msg.type === 'zone:room-closed') {
         const closedId = String(msg.serverId || '');
-        if (closedId && activeServerId === closedId) {
-          rtc.leaveRoom();
+        if (closedId && activeServerIdRef.current === closedId) {
+          rtcRef.current.leaveRoom();
           setActiveServerId(null);
           setActiveChannelId(null);
         }
       }
     });
-  }, [zoneSession, subscribeSignal, activeServerId, rtc]);
+  }, [zoneSession, subscribeSignal]);
 
   // Toast unread instant notifications
   const seenNotifsRef = useRef<Set<string>>(new Set());
@@ -331,6 +347,10 @@ function ZonePlatform() {
 
   const effectiveServers = instantSnapshot?.servers || [];
   const publicRooms = instantSnapshot?.publicServers || [];
+  const availablePublicRoomsCount = useMemo(
+    () => publicRooms.filter((r) => !effectiveServers.some((s) => s.id === r.id)).length,
+    [publicRooms, effectiveServers]
+  );
 
   const effectiveServersById = useMemo(() => {
     const map: Record<string, (typeof effectiveServers)[number]> = {};
@@ -356,7 +376,15 @@ function ZonePlatform() {
 
   useEffect(() => {
     if (!zoneSession || effectiveServers.length === 0) return;
-    if (!activeServerId || !effectiveServers.some((s) => s.id === activeServerId)) {
+    const pendingId = pendingJoinedServerRef.current;
+    if (pendingId && effectiveServers.some((s) => s.id === pendingId)) {
+      pendingJoinedServerRef.current = null;
+      if (activeServerId !== pendingId) {
+        setActiveServerId(pendingId);
+      }
+      return;
+    }
+    if (!pendingId && (!activeServerId || !effectiveServers.some((s) => s.id === activeServerId))) {
       setActiveServerId(effectiveServers[0].id);
     }
   }, [zoneSession, effectiveServers, activeServerId]);
@@ -528,7 +556,7 @@ function ZonePlatform() {
 
   const handleCopyInviteLink = () => {
     if (!activeServer || typeof window === 'undefined') return;
-    const url = `${window.location.origin}/?room=${activeServer.inviteCode}`;
+    const url = `${window.location.origin}${window.location.pathname}?room=${activeServer.inviteCode}`;
     navigator.clipboard.writeText(url);
     pushToast({
       type: 'invite',
@@ -572,6 +600,7 @@ function ZonePlatform() {
           activeMode={activeMode}
           activeServerId={activeServerId}
           unreadNotifications={unreadNotifications}
+          publicRoomsCount={availablePublicRoomsCount}
           onSelectHome={() => {
             setActiveMode('home');
             setMobileNavOpen(false);
@@ -644,6 +673,7 @@ function ZonePlatform() {
               activeMode={activeMode}
               activeServerId={activeServerId}
               unreadNotifications={unreadNotifications}
+              publicRoomsCount={availablePublicRoomsCount}
               onSelectHome={() => {
                 setActiveMode('home');
                 setMobileNavOpen(false);
@@ -743,6 +773,22 @@ function ZonePlatform() {
               <Bell className="w-5 h-5" />
             </button>
           </div>
+          {usingStaticFallback && !staticBannerDismissed && (
+            <div className="px-4 py-2 bg-amber-500/12 border-b border-amber-500/25 flex items-center justify-between gap-3 text-xs text-amber-200 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="truncate">{t.localModeBanner}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStaticBannerDismissed(true)}
+                className="text-amber-300 hover:text-white shrink-0"
+                aria-label={t.closeBtn}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
           <FriendsAndDmView
             currentUser={effectivePublicProfile}
             usingStaticFallback={usingStaticFallback}
@@ -758,11 +804,22 @@ function ZonePlatform() {
             onSelectFriendsHome={() => setActiveDmPeerUid(null)}
             onOpenDmWith={handleOpenDmWith}
             onSendFriendRequestByUsername={async (uname) => {
-              const clean = uname.replace(/^@/, '').toLowerCase();
-              const target = Object.values(effectiveUsersByUid).find(
-                (u) => u.username === clean
-              );
-              if (!target) throw new Error(t.tempFileOpenError);
+              const clean = uname.trim().replace(/^@/, '').toLowerCase();
+              const target = Object.values(effectiveUsersByUid).find((u) => {
+                if (u.uid === activeUid) return false;
+                const dname = u.displayName.toLowerCase();
+                const userHandle = u.username.toLowerCase();
+                const tag = (u.tag || '').toLowerCase();
+                const full = `${dname}${tag}`;
+                return (
+                  userHandle === clean ||
+                  dname === clean ||
+                  tag === clean ||
+                  tag === `#${clean}` ||
+                  full === clean
+                );
+              });
+              if (!target) throw new Error(t.participantNotFound);
               sendSignal({ type: 'instant:friend-request', username: clean, targetUid: target.uid });
             }}
             onRespondFriendRequest={async (fId, accept) => {
@@ -921,6 +978,29 @@ function ZonePlatform() {
                 </button>
               </div>
             </header>
+
+            {usingStaticFallback && !staticBannerDismissed && (
+              <div className="px-4 py-2 bg-amber-500/12 border-b border-amber-500/25 flex items-center justify-between gap-3 text-xs text-amber-200 shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="truncate">{t.localModeBanner}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setStaticBannerDismissed(true)}
+                  className="text-amber-300 hover:text-white shrink-0"
+                  aria-label={t.closeBtn}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {!connected && !usingStaticFallback && (
+              <div className="px-4 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-xs text-blue-200 shrink-0">
+                {t.connectingRealtimeNotice}
+              </div>
+            )}
 
             {effectiveActiveChannel?.type === 'text' && rtc.mediaError && (
               <div className="px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/25 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-200 shrink-0">
@@ -1092,6 +1172,7 @@ function ZonePlatform() {
           {showMembersDrawer && activeServer && (
             <div className="hidden md:flex h-full shrink-0">
               <MembersSidebar
+                currentUserUid={activeUid || undefined}
                 members={effectiveMembers}
                 usersByUid={effectiveUsersByUid}
                 livePresences={livePresences}
@@ -1326,6 +1407,9 @@ function ZonePlatform() {
             (f) => f.status === 'accepted' && f.users.includes(selectedProfile.user.uid)
           )}
           isBlocked={blockedUids.includes(selectedProfile.user.uid)}
+          canInviteToRoom={Boolean(
+            activeServer && !effectiveMembers.some((m) => m.uid === selectedProfile.user.uid)
+          )}
           onClose={() => setSelectedProfile(null)}
           onSendDm={() => handleOpenDmWith(selectedProfile.user.uid)}
           onAddFriend={async () => {
@@ -1334,6 +1418,17 @@ function ZonePlatform() {
               targetUid: selectedProfile.user.uid,
             });
           }}
+          onInviteToRoom={
+            activeServer
+              ? async () => {
+                  sendSignal({
+                    type: 'instant:invite-notify',
+                    recipientId: selectedProfile.user.uid,
+                    serverId: activeServer.id,
+                  });
+                }
+              : undefined
+          }
           onToggleBlock={() => handleToggleBlock(selectedProfile.user.uid)}
           onToggleAdminRole={
             activeServerId
@@ -1371,6 +1466,13 @@ function ZonePlatform() {
               setActiveServerId(n.linkServerId);
               setActiveMode('server');
               if (n.linkChannelId) setActiveChannelId(n.linkChannelId);
+            } else if (n.type === 'invite' && (n.inviteCode || n.linkServerId)) {
+              sendSignal({
+                type: 'instant:server-join',
+                inviteCode: n.inviteCode || undefined,
+                serverId: n.inviteCode ? undefined : n.linkServerId,
+              });
+              setActiveMode('server');
             }
           }}
         />

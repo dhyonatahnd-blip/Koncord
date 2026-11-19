@@ -53,6 +53,7 @@ const VideoSurface: React.FC<{
       if (ref.current.srcObject !== stream) {
         ref.current.srcObject = stream;
       }
+      ref.current.play().catch(() => {});
     }
   }, [stream]);
 

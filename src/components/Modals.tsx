@@ -300,9 +300,11 @@ export const ParticipantProfileModal: React.FC<{
   viewerRoleInServer?: ServerRole;
   isFriend: boolean;
   isBlocked: boolean;
+  canInviteToRoom?: boolean;
   onClose: () => void;
   onSendDm: () => void;
   onAddFriend: () => Promise<void>;
+  onInviteToRoom?: () => Promise<void>;
   onToggleBlock: () => Promise<void>;
   onToggleAdminRole?: (nextRole: 'admin' | 'member') => Promise<void>;
 }> = ({
@@ -312,9 +314,11 @@ export const ParticipantProfileModal: React.FC<{
   viewerRoleInServer,
   isFriend,
   isBlocked,
+  canInviteToRoom = false,
   onClose,
   onSendDm,
   onAddFriend,
+  onInviteToRoom,
   onToggleBlock,
   onToggleAdminRole,
 }) => {
@@ -387,13 +391,27 @@ export const ParticipantProfileModal: React.FC<{
                     await onAddFriend();
                     setFeedback(t.friendRequestSent);
                   } catch (err) {
-                    setFeedback(err instanceof Error ? err.message : t.tempFileOpenError);
+                    setFeedback(err instanceof Error ? err.message : t.participantNotFound);
                   }
                 }}
                 className="px-3.5 py-2 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-xs font-medium text-white flex items-center gap-1.5"
               >
                 <UserPlus className="w-3.5 h-3.5" />
                 {t.addFriendBtn}
+              </button>
+            )}
+
+            {canInviteToRoom && onInviteToRoom && !isBlocked && (
+              <button
+                type="button"
+                onClick={async () => {
+                  await onInviteToRoom();
+                  setFeedback(t.inviteSentNotice);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-violet-600/25 hover:bg-violet-600/35 border border-violet-400/30 text-xs font-medium text-violet-200 flex items-center gap-1.5"
+              >
+                <Link2 className="w-3.5 h-3.5" />
+                {t.inviteToRoomBtn}
               </button>
             )}
 
@@ -614,7 +632,7 @@ export const JoinServerModal: React.FC<{
   const [error, setError] = useState<string | null>(null);
 
   const normalizeCode = (raw: string) => {
-    const match = raw.match(/[?&]room=([A-Za-z0-9_-]+)/i);
+    const match = raw.match(/[?&](?:room|invite)=([A-Za-z0-9_-]+)/i);
     if (match && match[1]) return match[1].toUpperCase();
     return raw.trim().toUpperCase();
   };
@@ -694,6 +712,17 @@ export const PublicRoomsModal: React.FC<{
   onSelectJoinedRoom,
 }) => {
   const { t } = useI18n();
+  const [query, setQuery] = useState('');
+
+  const filtered = publicRooms.filter((room) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      room.name.toLowerCase().includes(q) ||
+      room.inviteCode.toLowerCase().includes(q) ||
+      room.description.toLowerCase().includes(q)
+    );
+  });
 
   return (
     <ModalFrame
@@ -701,62 +730,72 @@ export const PublicRoomsModal: React.FC<{
       subtitle={t.publicRoomsSubtitle}
       onClose={onClose}
     >
-      {publicRooms.length === 0 ? (
-        <div className="py-10 text-center text-sm text-zinc-400">{t.publicRoomsEmpty}</div>
-      ) : (
-        <div className="space-y-3">
-          {publicRooms.map((room) => {
-            const isMember = joinedServerIds.includes(room.id);
-            return (
-              <div
-                key={room.id}
-                className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/8 hover:border-white/15 transition-colors"
-              >
-                <div className="flex items-center gap-3.5 min-w-0">
-                  <div
-                    className="w-11 h-11 rounded-xl flex items-center justify-center font-display font-bold text-sm text-white shrink-0 border border-white/10"
-                    style={{ backgroundColor: room.iconColor }}
-                  >
-                    {room.iconInitials}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-white truncate">{room.name}</span>
-                      <span className="text-[11px] font-mono text-zinc-500">{room.inviteCode}</span>
-                    </div>
-                    {room.description && (
-                      <p className="text-xs text-zinc-400 truncate mt-0.5">{room.description}</p>
-                    )}
-                    <div className="flex items-center gap-2 text-[11px] text-zinc-500 mt-1 tabular-nums">
-                      <Users className="w-3 h-3" />
-                      <span>{room.memberCount ?? 0}</span>
-                    </div>
-                  </div>
-                </div>
+      <div className="space-y-3">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t.searchRoomsPlaceholder}
+          className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white placeholder:text-zinc-500"
+        />
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (isMember) {
-                      onSelectJoinedRoom(room.id);
-                    } else {
-                      onJoinPublicRoom(room.id);
-                    }
-                    onClose();
-                  }}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold shrink-0 whitespace-nowrap transition-colors ${
-                    isMember
-                      ? 'bg-white/8 hover:bg-white/15 text-zinc-200'
-                      : 'bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white'
-                  }`}
+        {filtered.length === 0 ? (
+          <div className="py-10 text-center text-sm text-zinc-400">{t.publicRoomsEmpty}</div>
+        ) : (
+          <div className="space-y-3">
+            {filtered.map((room) => {
+              const isMember = joinedServerIds.includes(room.id);
+              return (
+                <div
+                  key={room.id}
+                  className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/8 hover:border-white/15 transition-colors"
                 >
-                  {isMember ? t.alreadyMember : t.joinBtn}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div
+                      className="w-11 h-11 rounded-xl flex items-center justify-center font-display font-bold text-sm text-white shrink-0 border border-white/10"
+                      style={{ backgroundColor: room.iconColor }}
+                    >
+                      {room.iconInitials}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-white truncate">{room.name}</span>
+                        <span className="text-[11px] font-mono text-zinc-500">{room.inviteCode}</span>
+                      </div>
+                      {room.description && (
+                        <p className="text-xs text-zinc-400 truncate mt-0.5">{room.description}</p>
+                      )}
+                      <div className="flex items-center gap-2 text-[11px] text-zinc-500 mt-1 tabular-nums">
+                        <Users className="w-3 h-3" />
+                        <span>{room.memberCount ?? 0}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isMember) {
+                        onSelectJoinedRoom(room.id);
+                      } else {
+                        onJoinPublicRoom(room.id);
+                      }
+                      onClose();
+                    }}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-semibold shrink-0 whitespace-nowrap transition-colors ${
+                      isMember
+                        ? 'bg-white/8 hover:bg-white/15 text-zinc-200'
+                        : 'bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white'
+                    }`}
+                  >
+                    {isMember ? t.alreadyMember : t.joinBtn}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </ModalFrame>
   );
 };
@@ -791,7 +830,7 @@ export const ServerSettingsModal: React.FC<{
 
   const shareUrl =
     typeof window !== 'undefined'
-      ? `${window.location.origin}/?room=${server.inviteCode}`
+      ? `${window.location.origin}${window.location.pathname}?room=${server.inviteCode}`
       : `?room=${server.inviteCode}`;
 
   const handleIconPick = async (e: React.ChangeEvent<HTMLInputElement>) => {

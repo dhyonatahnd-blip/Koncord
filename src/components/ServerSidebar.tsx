@@ -8,6 +8,7 @@ interface ServerSidebarProps {
   activeMode: 'home' | 'server';
   activeServerId: string | null;
   unreadNotifications: number;
+  publicRoomsCount?: number;
   onSelectHome: () => void;
   onSelectServer: (serverId: string) => void;
   onOpenPublicRooms: () => void;
@@ -22,6 +23,7 @@ export const ServerSidebar: React.FC<ServerSidebarProps> = ({
   activeMode,
   activeServerId,
   unreadNotifications,
+  publicRoomsCount = 0,
   onSelectHome,
   onSelectServer,
   onOpenPublicRooms,
@@ -114,9 +116,14 @@ export const ServerSidebar: React.FC<ServerSidebarProps> = ({
           type="button"
           onClick={onOpenPublicRooms}
           title={t.publicRooms}
-          className="w-12 h-12 rounded-2xl bg-white/[0.04] hover:bg-blue-500/20 border border-white/8 hover:border-blue-400/35 text-blue-400 flex items-center justify-center transition-all duration-150 hover:rounded-xl shrink-0"
+          className="relative w-12 h-12 rounded-2xl bg-white/[0.04] hover:bg-blue-500/20 border border-white/8 hover:border-blue-400/35 text-blue-400 flex items-center justify-center transition-all duration-150 hover:rounded-xl shrink-0"
         >
           <Globe className="w-5 h-5" />
+          {publicRoomsCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-blue-500 text-white text-[10px] font-mono font-semibold flex items-center justify-center tabular-nums">
+              {publicRoomsCount > 99 ? '99+' : publicRoomsCount}
+            </span>
+          )}
         </button>
 
         {/* Join via Code */}
