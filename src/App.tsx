@@ -247,6 +247,7 @@ function ZonePlatform() {
 
   const {
     connected,
+    usingCloudRealtime,
     usingStaticFallback,
     livePresences,
     voiceRoster,
@@ -792,6 +793,7 @@ function ZonePlatform() {
           <FriendsAndDmView
             currentUser={effectivePublicProfile}
             usingStaticFallback={usingStaticFallback}
+            hasFileBackend={!usingStaticFallback && !usingCloudRealtime}
             blockedUids={blockedUids}
             friendships={effectiveFriendships}
             dmThreads={effectiveDmThreads}
@@ -1064,6 +1066,7 @@ function ZonePlatform() {
                 serverId={activeServer.id}
                 channelId={effectiveActiveChannel.id}
                 usingStaticFallback={usingStaticFallback}
+                hasFileBackend={!usingStaticFallback && !usingCloudRealtime}
                 placeholder={`${t.chatPlaceholder} #${effectiveActiveChannel.name}`}
                 messages={effectiveChannelMessages}
                 reactions={effectiveChannelReactions}

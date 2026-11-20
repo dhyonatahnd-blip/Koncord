@@ -77,6 +77,7 @@ interface ChatAreaProps {
   channelId?: string;
   threadId?: string;
   usingStaticFallback?: boolean;
+  hasFileBackend?: boolean;
   placeholder: string;
   messages: ChatMessage[];
   reactions: MessageReaction[];
@@ -102,6 +103,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   channelId = '',
   threadId = '',
   usingStaticFallback = false,
+  hasFileBackend,
   placeholder,
   messages,
   reactions,
@@ -201,9 +203,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       return;
     }
 
+    const useNodeUpload = hasFileBackend !== undefined ? hasFileBackend : !usingStaticFallback;
     setUploadingFile(true);
     try {
-      if (!usingStaticFallback) {
+      if (useNodeUpload) {
         const dataBase64 = await fileToBase64Payload(file);
         const resp = await fetch(`${getApiBaseUrl()}/api/files/upload`, {
           method: 'POST',
@@ -249,7 +252,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           expiresAt: result.expiresAt,
         });
       } else {
-        // Pure static fallback (Netlify without external backend)
+        // Cloud Firestore or static mode: store inline compressed/dataUrl with mandatory 5-min expiration
         const expiresAt = Date.now() + FIELD_LIMITS.TEMP_FILE_TTL_MS;
         if (file.type.startsWith('image/')) {
           const compressed = await fileToCompressedDataUrl(
@@ -270,11 +273,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           }
           const base64 = await fileToBase64Payload(file);
           const mime = file.type || 'application/octet-stream';
+          const dataUrl = `data:${mime};base64,${base64}`;
+          if (dataUrl.length > FIELD_LIMITS.ATTACHMENT_DATA_URL_MAX) {
+            throw new Error(t.fileTooLarge);
+          }
           setAttachment({
             name: file.name,
             type: mime,
             size: file.size,
-            dataUrl: `data:${mime};base64,${base64}`,
+            dataUrl,
             expiresAt,
           });
         }

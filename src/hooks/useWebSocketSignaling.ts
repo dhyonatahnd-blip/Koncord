@@ -15,6 +15,7 @@ import {
   VoicePeer,
 } from '../types';
 
+import { FirestoreInstantHub } from '../lib/firestoreInstantHub';
 import { LocalInstantHub } from '../lib/localInstantHub';
 import { getApiBaseUrl } from '../lib/validation';
 
@@ -72,6 +73,7 @@ export function useWebSocketSignaling(params: {
     alertText,
   } = params;
   const wsRef = useRef<WebSocket | null>(null);
+  const cloudHubRef = useRef<FirestoreInstantHub | null>(null);
   const localHubRef = useRef<LocalInstantHub | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const pingTimerRef = useRef<number | null>(null);
@@ -86,6 +88,7 @@ export function useWebSocketSignaling(params: {
   latestProfileRef.current = { displayName, username, avatarDataUrl, presence };
 
   const [connected, setConnected] = useState(false);
+  const [usingCloudRealtime, setUsingCloudRealtime] = useState(false);
   const [usingStaticFallback, setUsingStaticFallback] = useState(false);
   const [livePresences, setLivePresences] = useState<Record<string, PresenceStatus>>({});
   const [voiceRoster, setVoiceRoster] = useState<Record<string, VoicePeer[]>>({});
@@ -96,6 +99,10 @@ export function useWebSocketSignaling(params: {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(payload));
+      return true;
+    }
+    if (cloudHubRef.current) {
+      cloudHubRef.current.send(payload);
       return true;
     }
     if (localHubRef.current) {
@@ -221,8 +228,12 @@ export function useWebSocketSignaling(params: {
     hasOpenedRef.current = false;
     retryCountRef.current = 0;
 
-    const activateStaticFallback = () => {
+    const activateLocalFallback = () => {
       if (disposed || localHubRef.current) return;
+      if (cloudHubRef.current) {
+        cloudHubRef.current.dispose();
+        cloudHubRef.current = null;
+      }
       const prof = latestProfileRef.current;
       const hub = new LocalInstantHub({
         uid,
@@ -235,7 +246,32 @@ export function useWebSocketSignaling(params: {
         onMessage: handleIncomingMessage,
       });
       localHubRef.current = hub;
+      setUsingCloudRealtime(false);
       setUsingStaticFallback(true);
+      setConnected(true);
+      if (activeServerId) {
+        hub.send({ type: 'server:subscribe', serverId: activeServerId });
+      }
+    };
+
+    const activateCloudOrStaticFallback = () => {
+      if (disposed || cloudHubRef.current || localHubRef.current) return;
+      const prof = latestProfileRef.current;
+      const hub = new FirestoreInstantHub({
+        uid,
+        displayName: prof.displayName,
+        username: prof.username,
+        avatarDataUrl: prof.avatarDataUrl,
+        presence: prof.presence,
+        initialInviteCode: latestInviteRef.current,
+        onMessage: handleIncomingMessage,
+        onError: () => {
+          activateLocalFallback();
+        },
+      });
+      cloudHubRef.current = hub;
+      setUsingCloudRealtime(true);
+      setUsingStaticFallback(false);
       setConnected(true);
       if (activeServerId) {
         hub.send({ type: 'server:subscribe', serverId: activeServerId });
@@ -246,7 +282,7 @@ export function useWebSocketSignaling(params: {
     const forceStatic = (import.meta.env.VITE_STATIC_MODE as string | undefined) === 'true';
 
     if (forceStatic) {
-      activateStaticFallback();
+      activateLocalFallback();
       return () => {
         disposed = true;
         localHubRef.current?.dispose();
@@ -286,7 +322,7 @@ export function useWebSocketSignaling(params: {
       } catch {
         checkBackendExists().then((hasBackend) => {
           if (disposed) return;
-          if (!hasBackend) activateStaticFallback();
+          if (!hasBackend) activateCloudOrStaticFallback();
           else reconnectTimerRef.current = window.setTimeout(connect, 1500);
         });
         return;
@@ -301,7 +337,12 @@ export function useWebSocketSignaling(params: {
         hasOpenedRef.current = true;
         backendConfirmedRef.current = true;
         retryCountRef.current = 0;
+        setUsingCloudRealtime(false);
         setUsingStaticFallback(false);
+        if (cloudHubRef.current) {
+          cloudHubRef.current.dispose();
+          cloudHubRef.current = null;
+        }
         if (localHubRef.current) {
           localHubRef.current.dispose();
           localHubRef.current = null;
@@ -352,8 +393,8 @@ export function useWebSocketSignaling(params: {
             const hasBackend = await checkBackendExists();
             if (disposed) return;
             if (!hasBackend) {
-              // Static hosts like Netlify without VITE_WS_URL have no /ws endpoint
-              activateStaticFallback();
+              // Static hosts like Netlify without VITE_WS_URL use Firebase Firestore cloud hub
+              activateCloudOrStaticFallback();
               return;
             }
           }
@@ -372,6 +413,10 @@ export function useWebSocketSignaling(params: {
       if (pingTimerRef.current) window.clearInterval(pingTimerRef.current);
       if (wsRef.current) wsRef.current.close();
       wsRef.current = null;
+      if (cloudHubRef.current) {
+        cloudHubRef.current.dispose();
+        cloudHubRef.current = null;
+      }
       if (localHubRef.current) {
         localHubRef.current.dispose();
         localHubRef.current = null;
@@ -379,7 +424,7 @@ export function useWebSocketSignaling(params: {
     };
   }, [uid, isInstant, handleIncomingMessage]);
 
-  // Sync presence updates over open socket or static hub
+  // Sync presence updates over open socket, cloud hub, or static hub
   useEffect(() => {
     if (connected && uid) {
       sendSignal({ type: 'presence:set', presence });
@@ -395,6 +440,7 @@ export function useWebSocketSignaling(params: {
 
   return {
     connected,
+    usingCloudRealtime,
     usingStaticFallback,
     livePresences,
     voiceRoster,

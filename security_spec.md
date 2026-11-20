@@ -22,3 +22,9 @@
 10. **Friendship Hijack**: Creating a friendship with `requesterId != request.auth.uid` or `status: 'accepted'` directly -> Rejected by `isValidFriendship` & `status == 'pending'`.
 11. **Terminal State Bypass**: Updating a `declined` friendship back to `accepted` -> Rejected by `existing().status == 'pending'`.
 12. **Timestamp Forgery**: Sending `createdAt: "2020-01-01T00:00:00Z"` instead of `request.time` -> Rejected by `incoming().createdAt == request.time`.
+
+## 3. Ephemeral Registration-Free Zone Collections (`/zone*`)
+- **Zero PII Guarantee**: `/zoneUsers`, `/zoneServers`, `/zoneMemberships`, `/zoneFriendships`, `/zoneDmThreads`, `/zoneNotifications`, `/zoneSignals`, and `/zoneTyping` never store email addresses, passwords, or phone numbers.
+- **Strict Structural & Volumetric Enforcement**: Every `/zone*` collection enforces `isValidId()`, exact field allowlists (`hasAll` + `hasOnly` on create, `affectedKeys().hasOnly(...)` on update), strict string/array `.size()` limits (preventing Denial-of-Wallet), `request.time` server timestamp integrity, and `exists()` / `existsAfter()` relational parent integrity.
+- **No Open Wildcard Rules**: Every `allow get` and `allow list` validates document IDs and resource shape (`resource.data.*`) rather than blanket `if true`.
+

@@ -28,6 +28,7 @@ type FriendsTab = 'online' | 'all' | 'pending' | 'blocked' | 'add';
 interface FriendsAndDmViewProps {
   currentUser: UserPublic;
   usingStaticFallback?: boolean;
+  hasFileBackend?: boolean;
   blockedUids: string[];
   friendships: FriendshipDoc[];
   dmThreads: DmThread[];
@@ -58,6 +59,7 @@ interface FriendsAndDmViewProps {
 export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
   currentUser,
   usingStaticFallback = false,
+  hasFileBackend,
   blockedUids,
   friendships,
   dmThreads,
@@ -291,6 +293,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
             channelKey={`dm_${activeDmPeerUid}`}
             threadId={activeThreadId}
             usingStaticFallback={usingStaticFallback}
+            hasFileBackend={hasFileBackend}
             placeholder={`${t.chatPlaceholder} ${activeDmPeer.displayName}`}
             messages={dmMessages}
             reactions={dmReactions}

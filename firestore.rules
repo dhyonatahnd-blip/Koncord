@@ -644,5 +644,499 @@ service cloud.firestore {
         && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
       allow delete: if isVerifiedUser() && isValidId(notificationId) && existing().recipientId == request.auth.uid;
     }
+
+    // --- Zone Ephemeral Registration-Free Validation Blueprints (Zero PII) ---
+    function isValidZoneUser(data, userId) {
+      return data.keys().hasAll(['uid', 'tag', 'displayName', 'username', 'bio', 'customStatus', 'presence', 'avatarDataUrl', 'lastSeenAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'tag', 'displayName', 'username', 'bio', 'customStatus', 'presence', 'avatarDataUrl', 'lastSeenAt', 'createdAt', 'updatedAt'])
+        && data.uid == userId
+        && isValidId(data.uid)
+        && data.tag is string && data.tag.size() >= 2 && data.tag.size() <= 12
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 48
+        && data.username is string && data.username.size() >= 1 && data.username.size() <= 32 && data.username.matches('^[a-zA-Z0-9_.\\-]+$')
+        && data.bio is string && data.bio.size() <= 240
+        && data.customStatus is string && data.customStatus.size() <= 80
+        && data.presence in ['online', 'idle', 'dnd', 'invisible']
+        && data.avatarDataUrl is string && data.avatarDataUrl.size() <= 200000
+        && data.lastSeenAt is timestamp
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidZoneServer(data, serverId) {
+      return data.keys().hasAll(['id', 'name', 'description', 'iconColor', 'iconInitials', 'iconDataUrl', 'ownerId', 'inviteCode', 'visibility', 'retention', 'clearOnClose', 'memberCount', 'closed', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'description', 'iconColor', 'iconInitials', 'iconDataUrl', 'ownerId', 'inviteCode', 'visibility', 'retention', 'clearOnClose', 'memberCount', 'closed', 'createdAt', 'updatedAt'])
+        && data.id == serverId
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 64
+        && data.description is string && data.description.size() <= 240
+        && data.iconColor is string && data.iconColor.size() >= 3 && data.iconColor.size() <= 32
+        && data.iconInitials is string && data.iconInitials.size() >= 1 && data.iconInitials.size() <= 4
+        && data.iconDataUrl is string && data.iconDataUrl.size() <= 200000
+        && isValidId(data.ownerId)
+        && data.inviteCode is string && data.inviteCode.size() >= 4 && data.inviteCode.size() <= 24 && data.inviteCode.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.visibility in ['public', 'private']
+        && data.retention in ['5m', '15m', '60m', 'until_close']
+        && data.clearOnClose is bool
+        && data.memberCount is number && data.memberCount >= 0 && data.memberCount <= 100000
+        && data.closed is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidZoneMembership(data, membershipId) {
+      return data.keys().hasAll(['id', 'serverId', 'uid', 'role', 'joinedAt'])
+        && data.keys().hasOnly(['id', 'serverId', 'uid', 'role', 'joinedAt'])
+        && data.id == membershipId
+        && isValidLongId(data.id)
+        && isValidId(data.serverId)
+        && isValidId(data.uid)
+        && data.id == (data.serverId + '_' + data.uid)
+        && data.role in ['owner', 'admin', 'member']
+        && data.joinedAt is timestamp;
+    }
+
+    function isValidZoneVoicePeer(data, serverId, peerId) {
+      return data.keys().hasAll(['uid', 'serverId', 'channelId', 'displayName', 'avatarDataUrl', 'micMuted', 'camEnabled', 'screenSharing', 'speaking', 'joinedAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'serverId', 'channelId', 'displayName', 'avatarDataUrl', 'micMuted', 'camEnabled', 'screenSharing', 'speaking', 'joinedAt', 'updatedAt'])
+        && data.uid == peerId
+        && isValidId(data.uid)
+        && data.serverId == serverId
+        && isValidId(data.serverId)
+        && isValidId(data.channelId)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 48
+        && data.avatarDataUrl is string && data.avatarDataUrl.size() <= 200000
+        && data.micMuted is bool
+        && data.camEnabled is bool
+        && data.screenSharing is bool
+        && data.speaking is bool
+        && data.joinedAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidZoneMessage(data, serverId, channelId, messageId) {
+      return data.keys().hasAll(['id', 'serverId', 'channelId', 'authorId', 'authorName', 'authorTag', 'authorAvatar', 'content', 'attachmentName', 'attachmentType', 'attachmentSize', 'attachmentDataUrl', 'attachmentExpiresAt', 'attachmentExpired', 'replyToId', 'replyToAuthor', 'replyToSnippet', 'edited', 'expiresAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'serverId', 'channelId', 'authorId', 'authorName', 'authorTag', 'authorAvatar', 'content', 'attachmentName', 'attachmentType', 'attachmentSize', 'attachmentDataUrl', 'attachmentExpiresAt', 'attachmentExpired', 'replyToId', 'replyToAuthor', 'replyToSnippet', 'edited', 'expiresAt', 'createdAt', 'updatedAt'])
+        && data.id == messageId
+        && isValidId(data.id)
+        && data.serverId == serverId
+        && isValidId(data.serverId)
+        && data.channelId == channelId
+        && isValidId(data.channelId)
+        && isValidId(data.authorId)
+        && data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 48
+        && data.authorTag is string && data.authorTag.size() <= 12
+        && data.authorAvatar is string && data.authorAvatar.size() <= 200000
+        && data.content is string && data.content.size() <= 4000
+        && data.attachmentName is string && data.attachmentName.size() <= 140
+        && data.attachmentType is string && data.attachmentType.size() <= 100
+        && data.attachmentSize is number && data.attachmentSize >= 0 && data.attachmentSize <= 10485760
+        && data.attachmentDataUrl is string && data.attachmentDataUrl.size() <= 450000
+        && data.attachmentExpiresAt is number && data.attachmentExpiresAt >= 0
+        && data.attachmentExpired is bool
+        && (data.content.size() > 0 || data.attachmentDataUrl.size() > 0 || data.attachmentExpired == true)
+        && data.replyToId is string && data.replyToId.size() <= 128
+        && data.replyToAuthor is string && data.replyToAuthor.size() <= 48
+        && data.replyToSnippet is string && data.replyToSnippet.size() <= 160
+        && data.edited is bool
+        && data.expiresAt is number && data.expiresAt >= 0
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidZoneDmMessage(data, threadId, messageId) {
+      return data.keys().hasAll(['id', 'threadId', 'authorId', 'authorName', 'authorTag', 'authorAvatar', 'content', 'attachmentName', 'attachmentType', 'attachmentSize', 'attachmentDataUrl', 'attachmentExpiresAt', 'attachmentExpired', 'replyToId', 'replyToAuthor', 'replyToSnippet', 'edited', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'threadId', 'authorId', 'authorName', 'authorTag', 'authorAvatar', 'content', 'attachmentName', 'attachmentType', 'attachmentSize', 'attachmentDataUrl', 'attachmentExpiresAt', 'attachmentExpired', 'replyToId', 'replyToAuthor', 'replyToSnippet', 'edited', 'createdAt', 'updatedAt'])
+        && data.id == messageId
+        && isValidId(data.id)
+        && data.threadId == threadId
+        && isValidLongId(data.threadId)
+        && isValidId(data.authorId)
+        && data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 48
+        && data.authorTag is string && data.authorTag.size() <= 12
+        && data.authorAvatar is string && data.authorAvatar.size() <= 200000
+        && data.content is string && data.content.size() <= 4000
+        && data.attachmentName is string && data.attachmentName.size() <= 140
+        && data.attachmentType is string && data.attachmentType.size() <= 100
+        && data.attachmentSize is number && data.attachmentSize >= 0 && data.attachmentSize <= 10485760
+        && data.attachmentDataUrl is string && data.attachmentDataUrl.size() <= 450000
+        && data.attachmentExpiresAt is number && data.attachmentExpiresAt >= 0
+        && data.attachmentExpired is bool
+        && (data.content.size() > 0 || data.attachmentDataUrl.size() > 0 || data.attachmentExpired == true)
+        && data.replyToId is string && data.replyToId.size() <= 128
+        && data.replyToAuthor is string && data.replyToAuthor.size() <= 48
+        && data.replyToSnippet is string && data.replyToSnippet.size() <= 160
+        && data.edited is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidZoneNotification(data, notificationId) {
+      return data.keys().hasAll(['id', 'recipientId', 'senderId', 'senderName', 'type', 'title', 'body', 'linkServerId', 'linkChannelId', 'linkUserId', 'inviteCode', 'read', 'createdAt'])
+        && data.keys().hasOnly(['id', 'recipientId', 'senderId', 'senderName', 'type', 'title', 'body', 'linkServerId', 'linkChannelId', 'linkUserId', 'inviteCode', 'read', 'createdAt'])
+        && data.id == notificationId
+        && isValidId(data.id)
+        && isValidId(data.recipientId)
+        && isValidId(data.senderId)
+        && data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 48
+        && data.type in ['message', 'dm', 'invite', 'friend_request', 'voice_join', 'screen_share']
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 120
+        && data.body is string && data.body.size() <= 240
+        && data.linkServerId is string && data.linkServerId.size() <= 128
+        && data.linkChannelId is string && data.linkChannelId.size() <= 128
+        && data.linkUserId is string && data.linkUserId.size() <= 128
+        && data.inviteCode is string && data.inviteCode.size() <= 24
+        && data.read is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidZoneSignal(data, signalId) {
+      return data.keys().hasAll(['id', 'fromUid', 'fromName', 'toUid', 'channelId', 'type', 'sdpType', 'sdp', 'camStreamId', 'screenStreamId', 'candidate', 'sdpMid', 'sdpMLineIndex', 'createdAt'])
+        && data.keys().hasOnly(['id', 'fromUid', 'fromName', 'toUid', 'channelId', 'type', 'sdpType', 'sdp', 'camStreamId', 'screenStreamId', 'candidate', 'sdpMid', 'sdpMLineIndex', 'createdAt'])
+        && data.id == signalId
+        && isValidId(data.id)
+        && isValidId(data.fromUid)
+        && data.fromName is string && data.fromName.size() <= 48
+        && isValidId(data.toUid)
+        && isValidId(data.channelId)
+        && data.type in ['rtc:offer', 'rtc:answer', 'rtc:ice-candidate']
+        && data.sdpType is string && data.sdpType.size() <= 32
+        && data.sdp is string && data.sdp.size() <= 32000
+        && data.camStreamId is string && data.camStreamId.size() <= 128
+        && data.screenStreamId is string && data.screenStreamId.size() <= 128
+        && data.candidate is string && data.candidate.size() <= 4096
+        && data.sdpMid is string && data.sdpMid.size() <= 64
+        && data.sdpMLineIndex is number && data.sdpMLineIndex >= -1 && data.sdpMLineIndex <= 32
+        && data.createdAt is timestamp;
+    }
+
+    function isValidZoneTyping(data, typingId) {
+      return data.keys().hasAll(['id', 'channelKey', 'uid', 'displayName', 'isTyping', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'channelKey', 'uid', 'displayName', 'isTyping', 'updatedAt'])
+        && data.id == typingId
+        && isValidLongId(data.id)
+        && data.channelKey is string && data.channelKey.size() >= 1 && data.channelKey.size() <= 160
+        && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 48
+        && data.isTyping is bool
+        && data.updatedAt is timestamp;
+    }
+
+    // --- Zone Ephemeral Collections ---
+    match /zoneUsers/{userId} {
+      allow get: if isValidId(userId);
+      allow list: if request.query.limit <= 150;
+      allow create: if isValidId(userId)
+        && isValidZoneUser(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && incoming().lastSeenAt == request.time;
+      allow update: if isValidId(userId)
+        && isValidZoneUser(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().tag == existing().tag
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'username', 'bio', 'customStatus', 'presence', 'avatarDataUrl', 'lastSeenAt', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /zoneMemberships/{membershipId} {
+      allow get: if isValidLongId(membershipId);
+      allow list: if resource.data.uid is string;
+      allow create: if isValidLongId(membershipId)
+        && isValidZoneMembership(incoming(), membershipId)
+        && incoming().joinedAt == request.time
+        && (
+          exists(/databases/$(database)/documents/zoneServers/$(incoming().serverId)) ||
+          existsAfter(/databases/$(database)/documents/zoneServers/$(incoming().serverId))
+        );
+      allow update: if isValidLongId(membershipId)
+        && isValidZoneMembership(incoming(), membershipId)
+        && incoming().id == existing().id
+        && incoming().serverId == existing().serverId
+        && incoming().uid == existing().uid
+        && incoming().joinedAt == existing().joinedAt
+        && existing().role != 'owner'
+        && incoming().role in ['admin', 'member']
+        && incoming().diff(existing()).affectedKeys().hasOnly(['role']);
+      allow delete: if isValidLongId(membershipId);
+    }
+
+    match /zoneServers/{serverId} {
+      allow get: if isValidId(serverId);
+      allow list: if resource.data.closed == false;
+      allow create: if isValidId(serverId)
+        && isValidZoneServer(incoming(), serverId)
+        && incoming().closed == false
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(serverId)
+        && isValidZoneServer(incoming(), serverId)
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'iconInitials', 'description', 'iconDataUrl', 'visibility', 'retention', 'clearOnClose', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberCount', 'updatedAt']) ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['closed', 'updatedAt']) && existing().ownerId != 'system')
+        );
+      allow delete: if isValidId(serverId) && existing().ownerId != 'system';
+
+      match /members/{memberId} {
+        allow get: if isValidId(serverId) && isValidId(memberId);
+        allow list: if resource.data.serverId == serverId;
+        allow create: if isValidId(serverId)
+          && isValidId(memberId)
+          && isValidServerMember(incoming(), serverId, memberId)
+          && incoming().joinedAt == request.time
+          && (
+            exists(/databases/$(database)/documents/zoneServers/$(serverId)) ||
+            existsAfter(/databases/$(database)/documents/zoneServers/$(serverId))
+          );
+        allow update: if isValidId(serverId)
+          && isValidId(memberId)
+          && isValidServerMember(incoming(), serverId, memberId)
+          && incoming().uid == existing().uid
+          && incoming().serverId == existing().serverId
+          && incoming().joinedAt == existing().joinedAt
+          && existing().role != 'owner'
+          && incoming().role in ['admin', 'member']
+          && incoming().diff(existing()).affectedKeys().hasOnly(['role']);
+        allow delete: if isValidId(serverId) && isValidId(memberId) && existing().role != 'owner';
+      }
+
+      match /categories/{categoryId} {
+        allow get: if isValidId(serverId) && isValidId(categoryId);
+        allow list: if resource.data.serverId == serverId;
+        allow create: if isValidId(serverId)
+          && isValidId(categoryId)
+          && isValidCategory(incoming(), serverId, categoryId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && (
+            exists(/databases/$(database)/documents/zoneServers/$(serverId)) ||
+            existsAfter(/databases/$(database)/documents/zoneServers/$(serverId))
+          );
+        allow update: if isValidId(serverId)
+          && isValidId(categoryId)
+          && isValidCategory(incoming(), serverId, categoryId)
+          && incoming().id == existing().id
+          && incoming().serverId == existing().serverId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'position', 'updatedAt']);
+        allow delete: if isValidId(serverId) && isValidId(categoryId);
+      }
+
+      match /channels/{channelId} {
+        allow get: if isValidId(serverId) && isValidId(channelId);
+        allow list: if resource.data.serverId == serverId;
+        allow create: if isValidId(serverId)
+          && isValidId(channelId)
+          && isValidChannel(incoming(), serverId, channelId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && (
+            exists(/databases/$(database)/documents/zoneServers/$(serverId)) ||
+            existsAfter(/databases/$(database)/documents/zoneServers/$(serverId))
+          );
+        allow update: if isValidId(serverId)
+          && isValidId(channelId)
+          && isValidChannel(incoming(), serverId, channelId)
+          && incoming().id == existing().id
+          && incoming().serverId == existing().serverId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'topic', 'categoryId', 'type', 'position', 'updatedAt']);
+        allow delete: if isValidId(serverId) && isValidId(channelId);
+
+        match /messages/{messageId} {
+          allow get: if isValidId(serverId) && isValidId(channelId) && isValidId(messageId);
+          allow list: if resource.data.serverId == serverId && resource.data.channelId == channelId;
+          allow create: if isValidId(serverId)
+            && isValidId(channelId)
+            && isValidId(messageId)
+            && exists(/databases/$(database)/documents/zoneServers/$(serverId)/channels/$(channelId))
+            && isValidZoneMessage(incoming(), serverId, channelId, messageId)
+            && incoming().edited == false
+            && incoming().createdAt == request.time
+            && incoming().updatedAt == request.time;
+          allow update: if isValidId(serverId)
+            && isValidId(channelId)
+            && isValidId(messageId)
+            && isValidZoneMessage(incoming(), serverId, channelId, messageId)
+            && incoming().authorId == existing().authorId
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && (
+              (incoming().diff(existing()).affectedKeys().hasOnly(['content', 'edited', 'updatedAt']) && incoming().edited == true) ||
+              (incoming().diff(existing()).affectedKeys().hasOnly(['attachmentDataUrl', 'attachmentExpired', 'updatedAt']) && incoming().attachmentDataUrl == '' && incoming().attachmentExpired == true)
+            );
+          allow delete: if isValidId(serverId) && isValidId(channelId) && isValidId(messageId);
+        }
+
+        match /reactions/{reactionId} {
+          allow get: if isValidId(serverId) && isValidId(channelId) && isValidLongId(reactionId);
+          allow list: if resource.data.serverId == serverId && resource.data.channelId == channelId;
+          allow create: if isValidId(serverId)
+            && isValidId(channelId)
+            && isValidLongId(reactionId)
+            && exists(/databases/$(database)/documents/zoneServers/$(serverId)/channels/$(channelId)/messages/$(incoming().messageId))
+            && isValidReaction(incoming(), serverId, channelId, reactionId)
+            && incoming().createdAt == request.time;
+          allow update: if false;
+          allow delete: if isValidId(serverId) && isValidId(channelId) && isValidLongId(reactionId);
+        }
+      }
+
+      match /voicePeers/{peerId} {
+        allow get: if isValidId(serverId) && isValidId(peerId);
+        allow list: if resource.data.serverId == serverId;
+        allow create: if isValidId(serverId)
+          && isValidId(peerId)
+          && exists(/databases/$(database)/documents/zoneServers/$(serverId))
+          && isValidZoneVoicePeer(incoming(), serverId, peerId)
+          && incoming().joinedAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(serverId)
+          && isValidId(peerId)
+          && isValidZoneVoicePeer(incoming(), serverId, peerId)
+          && incoming().uid == existing().uid
+          && incoming().serverId == existing().serverId
+          && incoming().joinedAt == existing().joinedAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['channelId', 'displayName', 'avatarDataUrl', 'micMuted', 'camEnabled', 'screenSharing', 'speaking', 'updatedAt']);
+        allow delete: if isValidId(serverId) && isValidId(peerId);
+      }
+    }
+
+    match /zoneFriendships/{friendshipId} {
+      allow get: if isValidLongId(friendshipId);
+      allow list: if request.query.limit <= 100;
+      allow create: if isValidLongId(friendshipId)
+        && isValidFriendship(incoming(), friendshipId)
+        && incoming().status == 'pending'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidLongId(friendshipId)
+        && isValidFriendship(incoming(), friendshipId)
+        && existing().status == 'pending'
+        && incoming().id == existing().id
+        && incoming().users == existing().users
+        && incoming().requesterId == existing().requesterId
+        && incoming().recipientId == existing().recipientId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().status in ['accepted', 'declined']
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if isValidLongId(friendshipId);
+    }
+
+    match /zoneDmThreads/{threadId} {
+      allow get: if isValidLongId(threadId);
+      allow list: if request.query.limit <= 100;
+      allow create: if isValidLongId(threadId)
+        && isValidDmThread(incoming(), threadId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && incoming().lastMessageAt == request.time;
+      allow update: if isValidLongId(threadId)
+        && isValidDmThread(incoming(), threadId)
+        && incoming().id == existing().id
+        && incoming().participants == existing().participants
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().lastMessageAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['lastMessagePreview', 'lastMessageAt', 'updatedAt']);
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow get: if isValidLongId(threadId) && isValidId(messageId);
+        allow list: if resource.data.threadId == threadId;
+        allow create: if isValidLongId(threadId)
+          && isValidId(messageId)
+          && exists(/databases/$(database)/documents/zoneDmThreads/$(threadId))
+          && isValidZoneDmMessage(incoming(), threadId, messageId)
+          && incoming().edited == false
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidLongId(threadId)
+          && isValidId(messageId)
+          && isValidZoneDmMessage(incoming(), threadId, messageId)
+          && incoming().authorId == existing().authorId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            (incoming().diff(existing()).affectedKeys().hasOnly(['content', 'edited', 'updatedAt']) && incoming().edited == true) ||
+            (incoming().diff(existing()).affectedKeys().hasOnly(['attachmentDataUrl', 'attachmentExpired', 'updatedAt']) && incoming().attachmentDataUrl == '' && incoming().attachmentExpired == true)
+          );
+        allow delete: if isValidLongId(threadId) && isValidId(messageId);
+      }
+
+      match /reactions/{reactionId} {
+        allow get: if isValidLongId(threadId) && isValidLongId(reactionId);
+        allow list: if resource.data.threadId == threadId;
+        allow create: if isValidLongId(threadId)
+          && isValidLongId(reactionId)
+          && exists(/databases/$(database)/documents/zoneDmThreads/$(threadId)/messages/$(incoming().messageId))
+          && isValidDmReaction(incoming(), threadId, reactionId)
+          && incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isValidLongId(threadId) && isValidLongId(reactionId);
+      }
+    }
+
+    match /zoneNotifications/{notificationId} {
+      allow get: if isValidId(notificationId);
+      allow list: if resource.data.recipientId is string;
+      allow create: if isValidId(notificationId)
+        && isValidZoneNotification(incoming(), notificationId)
+        && incoming().read == false
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(notificationId)
+        && isValidZoneNotification(incoming(), notificationId)
+        && incoming().id == existing().id
+        && incoming().recipientId == existing().recipientId
+        && incoming().senderId == existing().senderId
+        && incoming().senderName == existing().senderName
+        && incoming().type == existing().type
+        && incoming().title == existing().title
+        && incoming().body == existing().body
+        && incoming().linkServerId == existing().linkServerId
+        && incoming().linkChannelId == existing().linkChannelId
+        && incoming().linkUserId == existing().linkUserId
+        && incoming().inviteCode == existing().inviteCode
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isValidId(notificationId);
+    }
+
+    match /zoneSignals/{signalId} {
+      allow get: if isValidId(signalId);
+      allow list: if resource.data.toUid is string;
+      allow create: if isValidId(signalId)
+        && isValidZoneSignal(incoming(), signalId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(signalId);
+    }
+
+    match /zoneTyping/{typingId} {
+      allow get: if isValidLongId(typingId);
+      allow list: if resource.data.isTyping == true;
+      allow create: if isValidLongId(typingId)
+        && isValidZoneTyping(incoming(), typingId)
+        && incoming().updatedAt == request.time;
+      allow update: if isValidLongId(typingId)
+        && isValidZoneTyping(incoming(), typingId)
+        && incoming().id == existing().id
+        && incoming().channelKey == existing().channelKey
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'isTyping', 'updatedAt']);
+      allow delete: if isValidLongId(typingId);
+    }
   }
 }

@@ -243,6 +243,193 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "recipientId", "senderId", "senderName", "type", "title", "body", "linkServerId", "linkChannelId", "linkUserId", "read", "createdAt"]
+    },
+    "ZoneUser": {
+      "title": "ZoneUser",
+      "description": "Ephemeral registration-free participant profile with zero PII.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "tag": { "type": "string", "minLength": 2, "maxLength": 12 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 48 },
+        "username": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[a-zA-Z0-9_.\\-]+$" },
+        "bio": { "type": "string", "maxLength": 240 },
+        "customStatus": { "type": "string", "maxLength": 80 },
+        "presence": { "type": "string", "enum": ["online", "idle", "dnd", "invisible"] },
+        "avatarDataUrl": { "type": "string", "maxLength": 200000 },
+        "lastSeenAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "tag", "displayName", "username", "bio", "customStatus", "presence", "avatarDataUrl", "lastSeenAt", "createdAt", "updatedAt"]
+    },
+    "ZoneServer": {
+      "title": "ZoneServer",
+      "description": "Ephemeral public or private communication room.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "description": { "type": "string", "maxLength": 240 },
+        "iconColor": { "type": "string", "minLength": 3, "maxLength": 32 },
+        "iconInitials": { "type": "string", "minLength": 1, "maxLength": 4 },
+        "iconDataUrl": { "type": "string", "maxLength": 200000 },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "inviteCode": { "type": "string", "minLength": 4, "maxLength": 24, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "visibility": { "type": "string", "enum": ["public", "private"] },
+        "retention": { "type": "string", "enum": ["5m", "15m", "60m", "until_close"] },
+        "clearOnClose": { "type": "boolean" },
+        "memberCount": { "type": "number" },
+        "closed": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "description", "iconColor", "iconInitials", "iconDataUrl", "ownerId", "inviteCode", "visibility", "retention", "clearOnClose", "memberCount", "closed", "createdAt", "updatedAt"]
+    },
+    "ZoneMembership": {
+      "title": "ZoneMembership",
+      "description": "Membership index linking an ephemeral participant to a Zone room.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 260, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "serverId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "role": { "type": "string", "enum": ["owner", "admin", "member"] },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "serverId", "uid", "role", "joinedAt"]
+    },
+    "ZoneVoicePeer": {
+      "title": "ZoneVoicePeer",
+      "description": "Active participant inside a Zone voice or video channel.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "serverId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "channelId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 48 },
+        "avatarDataUrl": { "type": "string", "maxLength": 200000 },
+        "micMuted": { "type": "boolean" },
+        "camEnabled": { "type": "boolean" },
+        "screenSharing": { "type": "boolean" },
+        "speaking": { "type": "boolean" },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "serverId", "channelId", "displayName", "avatarDataUrl", "micMuted", "camEnabled", "screenSharing", "speaking", "joinedAt", "updatedAt"]
+    },
+    "ZoneMessage": {
+      "title": "ZoneMessage",
+      "description": "Ephemeral chat message with optional 5-minute temporary attachment.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "serverId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "channelId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 48 },
+        "authorTag": { "type": "string", "maxLength": 12 },
+        "authorAvatar": { "type": "string", "maxLength": 200000 },
+        "content": { "type": "string", "maxLength": 4000 },
+        "attachmentName": { "type": "string", "maxLength": 140 },
+        "attachmentType": { "type": "string", "maxLength": 100 },
+        "attachmentSize": { "type": "number" },
+        "attachmentDataUrl": { "type": "string", "maxLength": 450000 },
+        "attachmentExpiresAt": { "type": "number" },
+        "attachmentExpired": { "type": "boolean" },
+        "replyToId": { "type": "string", "maxLength": 128 },
+        "replyToAuthor": { "type": "string", "maxLength": 48 },
+        "replyToSnippet": { "type": "string", "maxLength": 160 },
+        "edited": { "type": "boolean" },
+        "expiresAt": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "serverId", "channelId", "authorId", "authorName", "authorTag", "authorAvatar", "content", "attachmentName", "attachmentType", "attachmentSize", "attachmentDataUrl", "attachmentExpiresAt", "attachmentExpired", "replyToId", "replyToAuthor", "replyToSnippet", "edited", "expiresAt", "createdAt", "updatedAt"]
+    },
+    "ZoneDmMessage": {
+      "title": "ZoneDmMessage",
+      "description": "Ephemeral direct message with optional 5-minute temporary attachment.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "threadId": { "type": "string", "minLength": 1, "maxLength": 260, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 48 },
+        "authorTag": { "type": "string", "maxLength": 12 },
+        "authorAvatar": { "type": "string", "maxLength": 200000 },
+        "content": { "type": "string", "maxLength": 4000 },
+        "attachmentName": { "type": "string", "maxLength": 140 },
+        "attachmentType": { "type": "string", "maxLength": 100 },
+        "attachmentSize": { "type": "number" },
+        "attachmentDataUrl": { "type": "string", "maxLength": 450000 },
+        "attachmentExpiresAt": { "type": "number" },
+        "attachmentExpired": { "type": "boolean" },
+        "replyToId": { "type": "string", "maxLength": 128 },
+        "replyToAuthor": { "type": "string", "maxLength": 48 },
+        "replyToSnippet": { "type": "string", "maxLength": 160 },
+        "edited": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "threadId", "authorId", "authorName", "authorTag", "authorAvatar", "content", "attachmentName", "attachmentType", "attachmentSize", "attachmentDataUrl", "attachmentExpiresAt", "attachmentExpired", "replyToId", "replyToAuthor", "replyToSnippet", "edited", "createdAt", "updatedAt"]
+    },
+    "ZoneNotification": {
+      "title": "ZoneNotification",
+      "description": "Ephemeral notification including room invite code.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "recipientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "senderId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "senderName": { "type": "string", "minLength": 1, "maxLength": 48 },
+        "type": { "type": "string", "enum": ["message", "dm", "invite", "friend_request", "voice_join", "screen_share"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "body": { "type": "string", "maxLength": 240 },
+        "linkServerId": { "type": "string", "maxLength": 128 },
+        "linkChannelId": { "type": "string", "maxLength": 128 },
+        "linkUserId": { "type": "string", "maxLength": 128 },
+        "inviteCode": { "type": "string", "maxLength": 24 },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "recipientId", "senderId", "senderName", "type", "title", "body", "linkServerId", "linkChannelId", "linkUserId", "inviteCode", "read", "createdAt"]
+    },
+    "ZoneSignal": {
+      "title": "ZoneSignal",
+      "description": "Peer-to-peer WebRTC SDP and ICE candidate signaling packet.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fromUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fromName": { "type": "string", "maxLength": 48 },
+        "toUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "channelId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["rtc:offer", "rtc:answer", "rtc:ice-candidate"] },
+        "sdpType": { "type": "string", "maxLength": 32 },
+        "sdp": { "type": "string", "maxLength": 32000 },
+        "camStreamId": { "type": "string", "maxLength": 128 },
+        "screenStreamId": { "type": "string", "maxLength": 128 },
+        "candidate": { "type": "string", "maxLength": 4096 },
+        "sdpMid": { "type": "string", "maxLength": 64 },
+        "sdpMLineIndex": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "fromUid", "fromName", "toUid", "channelId", "type", "sdpType", "sdp", "camStreamId", "screenStreamId", "candidate", "sdpMid", "sdpMLineIndex", "createdAt"]
+    },
+    "ZoneTyping": {
+      "title": "ZoneTyping",
+      "description": "Transient typing indicator for a Zone text channel or DM.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 260, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "channelKey": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 48 },
+        "isTyping": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "channelKey", "uid", "displayName", "isTyping", "updatedAt"]
     }
   },
   "firestore": {
@@ -305,6 +492,70 @@
     "/notifications/{notificationId}": {
       "schema": { "$ref": "#/entities/Notification" },
       "description": "User notifications."
+    },
+    "/zoneUsers/{userId}": {
+      "schema": { "$ref": "#/entities/ZoneUser" },
+      "description": "Ephemeral Zone participant profiles and presence."
+    },
+    "/zoneServers/{serverId}": {
+      "schema": { "$ref": "#/entities/ZoneServer" },
+      "description": "Ephemeral Zone public and private rooms."
+    },
+    "/zoneMemberships/{membershipId}": {
+      "schema": { "$ref": "#/entities/ZoneMembership" },
+      "description": "Membership index linking Zone participants to rooms."
+    },
+    "/zoneServers/{serverId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/ServerMember" },
+      "description": "Room member records."
+    },
+    "/zoneServers/{serverId}/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Room categories."
+    },
+    "/zoneServers/{serverId}/channels/{channelId}": {
+      "schema": { "$ref": "#/entities/Channel" },
+      "description": "Room text, voice, and video channels."
+    },
+    "/zoneServers/{serverId}/channels/{channelId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ZoneMessage" },
+      "description": "Room messages with 5-minute temporary attachments."
+    },
+    "/zoneServers/{serverId}/channels/{channelId}/reactions/{reactionId}": {
+      "schema": { "$ref": "#/entities/Reaction" },
+      "description": "Emoji reactions on Zone room messages."
+    },
+    "/zoneServers/{serverId}/voicePeers/{peerId}": {
+      "schema": { "$ref": "#/entities/ZoneVoicePeer" },
+      "description": "Active voice/video/screen participants in a room."
+    },
+    "/zoneFriendships/{friendshipId}": {
+      "schema": { "$ref": "#/entities/Friendship" },
+      "description": "Ephemeral contact requests and accepted contacts."
+    },
+    "/zoneDmThreads/{threadId}": {
+      "schema": { "$ref": "#/entities/DmThread" },
+      "description": "Ephemeral direct message threads."
+    },
+    "/zoneDmThreads/{threadId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ZoneDmMessage" },
+      "description": "Direct messages with 5-minute temporary attachments."
+    },
+    "/zoneDmThreads/{threadId}/reactions/{reactionId}": {
+      "schema": { "$ref": "#/entities/DmReaction" },
+      "description": "Emoji reactions on ephemeral direct messages."
+    },
+    "/zoneNotifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/ZoneNotification" },
+      "description": "Real-time notifications for Zone participants."
+    },
+    "/zoneSignals/{signalId}": {
+      "schema": { "$ref": "#/entities/ZoneSignal" },
+      "description": "Transient WebRTC SDP and ICE signaling packets."
+    },
+    "/zoneTyping/{typingId}": {
+      "schema": { "$ref": "#/entities/ZoneTyping" },
+      "description": "Transient typing indicator records."
     }
   }
 }
