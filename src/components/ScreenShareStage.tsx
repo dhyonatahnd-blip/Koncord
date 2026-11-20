@@ -260,7 +260,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
           type="button"
           onClick={onToggleLocalScreenAudioMute}
           title={localScreenAudioMuted ? t.unmuteOutgoingScreenAudio : t.muteOutgoingScreenAudio}
-          className={`px-3 py-2 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 border ${
+          className={`min-h-[38px] px-3 py-2 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 border ${
             localScreenAudioMuted
               ? 'bg-rose-500/15 border-rose-500/30 text-rose-300 hover:bg-rose-500/25'
               : 'bg-white/8 border-white/10 text-zinc-200 hover:bg-white/14'
@@ -274,7 +274,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
 
     return (
       <div
-        className={`flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-2.5 py-1.5 shrink-0 ${
+        className={`flex items-center gap-1.5 sm:gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-2 sm:px-2.5 py-1 min-h-[38px] shrink-0 ${
           compact ? '' : 'backdrop-blur-md'
         }`}
       >
@@ -283,7 +283,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
           onClick={() => onToggleScreenMute(activeFeed.uid)}
           title={activeMuted ? t.unmuteStreamBtn : t.muteStreamBtn}
           aria-label={activeMuted ? t.unmuteStreamBtn : t.muteStreamBtn}
-          className={`p-1 rounded-lg transition-colors ${
+          className={`min-h-[32px] min-w-[32px] rounded-lg transition-colors flex items-center justify-center ${
             activeMuted
               ? 'text-rose-400 bg-rose-500/15 hover:bg-rose-500/25'
               : 'text-zinc-200 hover:bg-white/10'
@@ -300,7 +300,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
           onChange={(e) => onSetScreenVolume(activeFeed.uid, Number(e.target.value) / 100)}
           aria-label={t.screenVolumeLabel}
           title={`${t.screenVolumeLabel}: ${activeVolumePct}%`}
-          className="w-20 sm:w-24 accent-blue-500 cursor-pointer"
+          className="w-16 sm:w-24 accent-blue-500 cursor-pointer"
         />
         <span className="text-[11px] font-mono tabular-nums text-zinc-300 w-9 text-right">
           {activeVolumePct}%
@@ -315,12 +315,18 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
       onMouseMove={() => {
         if (isFullscreen) scheduleIdleHide();
       }}
+      onTouchStart={() => {
+        if (isFullscreen) scheduleIdleHide();
+      }}
+      onPointerDown={() => {
+        if (isFullscreen) scheduleIdleHide();
+      }}
       onClick={() => {
         if (isFullscreen && idleHidden) scheduleIdleHide();
       }}
       className={
         isFullscreen
-          ? 'fixed inset-0 z-50 bg-black flex flex-col items-center justify-center select-none'
+          ? 'fixed inset-0 z-50 h-[100dvh] w-[100dvw] bg-black flex flex-col items-center justify-center select-none'
           : 'relative rounded-2xl border border-white/10 bg-[#0B0C10] overflow-hidden shadow-2xl flex flex-col'
       }
     >
@@ -334,13 +340,13 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
       <div
         className={
           isFullscreen
-            ? `absolute top-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-black/65 backdrop-blur-xl border border-white/10 transition-opacity duration-200 ${
+            ? `absolute top-3 sm:top-4 left-3 sm:left-4 right-3 sm:right-4 z-20 flex flex-wrap items-center justify-between gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-black/65 backdrop-blur-xl border border-white/10 transition-opacity duration-200 ${
                 showOverlayControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
               }`
-            : 'flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-white/8 bg-white/[0.02]'
+            : 'flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 border-b border-white/8 bg-white/[0.02]'
         }
       >
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
           <div
             className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${
               activeFeed.mode === 'game'
@@ -356,7 +362,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-white truncate">
+              <span className="text-xs sm:text-sm font-medium text-white truncate">
                 {activeFeed.isLocal ? t.localYou : activeFeed.displayName} · {t.liveScreenTitle}
               </span>
               {activeFeed.mode === 'game' && (
@@ -365,7 +371,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
                 </span>
               )}
             </div>
-            <div className="text-xs text-zinc-400 truncate">
+            <div className="text-[11px] sm:text-xs text-zinc-400 truncate">
               {activeFeed.isLocal && activeFeed.hasSystemAudio
                 ? localScreenAudioMuted
                   ? t.screenAudioMutedBadge
@@ -375,9 +381,9 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0 max-w-full">
           {feeds.length > 1 && (
-            <div className="flex items-center gap-1 p-1 rounded-lg bg-white/5 border border-white/10">
+            <div className="flex items-center gap-1 p-1 rounded-lg bg-white/5 border border-white/10 overflow-x-auto no-scrollbar max-w-full">
               {feeds.map((feed) => (
                 <button
                   key={feed.uid}
@@ -401,7 +407,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
             <button
               type="button"
               onClick={enterFullscreen}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold tracking-wide flex items-center gap-2 transition-colors shadow-lg shadow-blue-500/25 whitespace-nowrap shrink-0"
+              className="min-h-[38px] px-3 sm:px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold tracking-wide flex items-center gap-1.5 sm:gap-2 transition-colors shadow-lg shadow-blue-500/25 whitespace-nowrap shrink-0"
             >
               <Maximize2 className="w-3.5 h-3.5" />
               {t.fullscreenBtn}
@@ -412,7 +418,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
             <button
               type="button"
               onClick={onStopLocalShare}
-              className="px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              className="min-h-[38px] px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
             >
               <MonitorOff className="w-3.5 h-3.5" />
               {t.stopShare}
@@ -426,7 +432,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
         className={
           isFullscreen
             ? 'w-full h-full flex items-center justify-center p-2 sm:p-4 bg-black'
-            : 'relative w-full aspect-video max-h-[58vh] bg-black flex items-center justify-center'
+            : 'relative w-full aspect-video max-h-[42vh] sm:max-h-[58vh] bg-black flex items-center justify-center'
         }
       >
         <video
@@ -442,7 +448,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
       {isFullscreen && (
         <>
           <div
-            className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center justify-center gap-2 px-3 py-2 rounded-2xl bg-black/75 backdrop-blur-xl border border-white/12 shadow-2xl transition-all duration-200 max-w-[calc(100vw-2rem)] ${
+            className={`fixed bottom-[max(1rem,env(safe-area-inset-bottom))] sm:bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-2xl bg-black/75 backdrop-blur-xl border border-white/12 shadow-2xl transition-all duration-200 max-w-[calc(100vw-1.5rem)] ${
               showOverlayControls
                 ? 'opacity-100 translate-y-0'
                 : 'opacity-0 translate-y-3 pointer-events-none'
@@ -453,10 +459,10 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
             <button
               type="button"
               onClick={() => setControlsHidden(true)}
-              className="px-3 py-2 rounded-xl bg-white/8 hover:bg-white/15 text-zinc-200 text-xs font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap"
+              className="min-h-[38px] px-3 py-2 rounded-xl bg-white/8 hover:bg-white/15 text-zinc-200 text-xs font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap"
             >
               <EyeOff className="w-4 h-4" />
-              {t.hideControlsBtn}
+              <span className="hidden sm:inline">{t.hideControlsBtn}</span>
             </button>
 
             {activeFeed.isLocal && (
@@ -466,20 +472,21 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
                   exitFullscreen();
                   onStopLocalShare();
                 }}
-                className="px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-200 text-xs font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                className="min-h-[38px] px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-200 text-xs font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap"
               >
                 <MonitorOff className="w-4 h-4" />
-                {t.stopShare}
+                <span>{t.stopShare}</span>
               </button>
             )}
 
             <button
               type="button"
               onClick={exitFullscreen}
-              className="px-4 py-2 rounded-xl bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap"
+              className="min-h-[38px] px-3.5 sm:px-4 py-2 rounded-xl bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap"
             >
               <Minimize2 className="w-4 h-4" />
-              {t.exitFullscreenBtn} (ESC)
+              <span>{t.exitFullscreenBtn}</span>
+              <span className="hidden sm:inline">(ESC)</span>
             </button>
           </div>
 
@@ -488,7 +495,7 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
               type="button"
               onClick={() => setControlsHidden(false)}
               title={t.showControlsBtn}
-              className="fixed bottom-4 right-4 z-30 p-2.5 rounded-xl bg-black/50 hover:bg-black/80 border border-white/10 text-zinc-300 backdrop-blur-md transition-opacity opacity-50 hover:opacity-100"
+              className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-30 min-h-[44px] min-w-[44px] p-2.5 rounded-xl bg-black/50 hover:bg-black/80 border border-white/10 text-zinc-300 backdrop-blur-md transition-opacity opacity-65 hover:opacity-100 flex items-center justify-center"
             >
               <Eye className="w-4 h-4" />
             </button>

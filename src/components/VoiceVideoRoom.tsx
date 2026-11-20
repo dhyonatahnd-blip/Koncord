@@ -171,8 +171,8 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
 
   if (!isJoined) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-        <div className="max-w-md w-full rounded-2xl border border-white/10 glass-elevated p-8 shadow-2xl">
+      <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center p-4 sm:p-8 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-center">
+        <div className="max-w-md w-full rounded-2xl border border-white/10 glass-elevated p-5 sm:p-8 shadow-2xl">
           <div className="w-14 h-14 rounded-2xl bg-blue-500/15 border border-blue-400/30 flex items-center justify-center text-blue-400 mx-auto mb-5">
             {channel.type === 'video' ? <Camera className="w-7 h-7" /> : <Volume2 className="w-7 h-7" />}
           </div>
@@ -207,25 +207,25 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
             <button
               type="button"
               onClick={onJoin}
-              className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-sm font-semibold transition-colors shadow-lg shadow-blue-500/25"
+              className="w-full min-h-[44px] py-3 px-5 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-sm font-semibold transition-colors shadow-lg shadow-blue-500/25"
             >
               {t.joinRoomBtn}
             </button>
             <button
               type="button"
               onClick={onStartScreenShare}
-              className="w-full py-2.5 px-5 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-zinc-100 text-xs font-medium flex items-center justify-center gap-2 transition-colors"
+              className="w-full min-h-[44px] py-2.5 px-5 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-zinc-100 text-xs font-medium flex items-center justify-center gap-2 transition-colors"
             >
-              <MonitorUp className="w-4 h-4 text-sky-400" />
-              {t.joinAndShareBtn}
+              <MonitorUp className="w-4 h-4 text-sky-400 shrink-0" />
+              <span>{t.joinAndShareBtn}</span>
             </button>
             <button
               type="button"
               onClick={onStartGameShare}
-              className="w-full py-2.5 px-5 rounded-xl bg-violet-500/15 hover:bg-violet-500/25 border border-violet-400/30 text-violet-100 text-xs font-medium flex items-center justify-center gap-2 transition-colors"
+              className="w-full min-h-[44px] py-2.5 px-5 rounded-xl bg-violet-500/15 hover:bg-violet-500/25 border border-violet-400/30 text-violet-100 text-xs font-medium flex items-center justify-center gap-2 transition-colors"
             >
-              <Gamepad2 className="w-4 h-4 text-violet-300" />
-              {t.joinAndShareGameBtn}
+              <Gamepad2 className="w-4 h-4 text-violet-300 shrink-0" />
+              <span>{t.joinAndShareGameBtn}</span>
             </button>
           </div>
         </div>
@@ -243,10 +243,10 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
         />
       ))}
 
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6">
         {mediaError && (
-          <div className="rounded-xl bg-amber-500/10 border border-amber-500/25 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-200">
-            <span className="flex-1 min-w-[220px]">{mediaError}</span>
+          <div className="rounded-xl bg-amber-500/10 border border-amber-500/25 px-3.5 sm:px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-200">
+            <span className="flex-1 min-w-[200px]">{mediaError}</span>
             <div className="flex items-center gap-2 shrink-0">
               {screenShareBlockedByIframe && (
                 <a
@@ -284,9 +284,9 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
         )}
 
         <div
-          className={`grid gap-4 ${
+          className={`grid gap-3 sm:gap-4 ${
             peerList.length === 0
-              ? 'grid-cols-1 max-w-xl mx-auto'
+              ? 'grid-cols-1 w-full max-w-xl mx-auto'
               : peerList.length === 1
               ? 'grid-cols-1 md:grid-cols-2'
               : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3'
@@ -365,14 +365,14 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
                   </div>
                 )}
 
-                <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-3 px-3 py-1.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/10">
+                <div className="absolute bottom-2 sm:bottom-3 left-2 sm:left-3 right-2 sm:right-3 flex items-center justify-between gap-2 sm:gap-3 px-2.5 sm:px-3 py-1.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/10">
                   <span className="text-xs font-medium text-white truncate">{peer.displayName}</span>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                     <button
                       type="button"
                       onClick={() => onSetPeerVolume(peer.uid, vol === 0 ? 1 : 0)}
                       title={vol === 0 ? t.unmuteMic : t.muteMic}
-                      className="text-zinc-300 hover:text-white"
+                      className="min-h-[30px] min-w-[30px] flex items-center justify-center text-zinc-300 hover:text-white"
                     >
                       {vol === 0 ? (
                         <VolumeX className="w-3.5 h-3.5 text-rose-400" />
@@ -387,7 +387,7 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
                       value={Math.round(vol * 100)}
                       onChange={(e) => onSetPeerVolume(peer.uid, Number(e.target.value) / 100)}
                       title={`${t.participantVolume}: ${Math.round(vol * 100)}%`}
-                      className="w-16 accent-blue-500 cursor-pointer"
+                      className="w-14 sm:w-16 accent-blue-500 cursor-pointer"
                     />
                     {peer.micMuted && <MicOff className="w-3.5 h-3.5 text-rose-400" />}
                   </div>
@@ -399,43 +399,45 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
       </div>
 
       {/* Bottom Glassmorphic Media Controls Bar */}
-      <div className="px-4 py-3.5 border-t border-white/8 bg-[#111217]/90 backdrop-blur-xl flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 text-xs text-zinc-400">
-          <span className="w-2 h-2 rounded-full bg-emerald-400" />
-          <span className="text-zinc-200 font-medium">{channel.name}</span>
+      <div className="px-3 sm:px-4 py-2.5 sm:py-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-white/8 bg-[#111217]/90 backdrop-blur-xl flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-2.5 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-2 text-[11px] sm:text-xs text-zinc-400 min-w-0">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+          <span className="text-zinc-200 font-medium truncate">{channel.name}</span>
           <span aria-hidden="true">·</span>
-          <span className="tabular-nums">
+          <span className="tabular-nums whitespace-nowrap">
             {peerList.length + 1} {t.participantsInRoom}
           </span>
-          <span aria-hidden="true">·</span>
-          <span className="text-zinc-500">{livekitActive ? t.livekitActive : t.webrtcDirect}</span>
+          <span aria-hidden="true" className="hidden sm:inline">·</span>
+          <span className="hidden sm:inline text-zinc-500 whitespace-nowrap">
+            {livekitActive ? t.livekitActive : t.webrtcDirect}
+          </span>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap w-full sm:w-auto">
           <button
             type="button"
             onClick={onToggleMic}
-            className={`px-3.5 py-2.5 rounded-xl text-xs font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
+            className={`flex-1 sm:flex-initial min-h-[42px] px-3 sm:px-3.5 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap ${
               micMuted
                 ? 'bg-rose-500/15 border border-rose-500/30 text-rose-300 hover:bg-rose-500/25'
                 : 'bg-white/8 border border-white/10 text-zinc-100 hover:bg-white/14'
             }`}
           >
-            {micMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-            {micMuted ? t.unmuteMic : t.muteMic}
+            {micMuted ? <MicOff className="w-4 h-4 shrink-0" /> : <Mic className="w-4 h-4 shrink-0" />}
+            <span>{micMuted ? t.unmuteMic : t.muteMic}</span>
           </button>
 
           <button
             type="button"
             onClick={onToggleCam}
-            className={`px-3.5 py-2.5 rounded-xl text-xs font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
+            className={`flex-1 sm:flex-initial min-h-[42px] px-3 sm:px-3.5 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap ${
               camEnabled
                 ? 'bg-blue-500/20 border border-blue-400/35 text-blue-200 hover:bg-blue-500/30'
                 : 'bg-white/8 border border-white/10 text-zinc-100 hover:bg-white/14'
             }`}
           >
-            {camEnabled ? <Camera className="w-4 h-4" /> : <CameraOff className="w-4 h-4" />}
-            {camEnabled ? t.camOff : t.camOn}
+            {camEnabled ? <Camera className="w-4 h-4 shrink-0" /> : <CameraOff className="w-4 h-4 shrink-0" />}
+            <span>{camEnabled ? t.camOff : t.camOn}</span>
           </button>
 
           {screenSharing ? (
@@ -444,23 +446,23 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
                 <button
                   type="button"
                   onClick={onToggleScreenAudioMute}
-                  className={`px-3.5 py-2.5 rounded-xl text-xs font-medium flex items-center gap-2 transition-colors whitespace-nowrap border ${
+                  className={`flex-1 sm:flex-initial min-h-[42px] px-3 sm:px-3.5 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap border ${
                     screenAudioMuted
                       ? 'bg-rose-500/15 border-rose-500/30 text-rose-300 hover:bg-rose-500/25'
                       : 'bg-white/8 border-white/10 text-zinc-100 hover:bg-white/14'
                   }`}
                 >
-                  {screenAudioMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
-                  {screenAudioMuted ? t.unmuteOutgoingScreenAudio : t.muteOutgoingScreenAudio}
+                  {screenAudioMuted ? <VolumeX className="w-4 h-4 shrink-0" /> : <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+                  <span>{screenAudioMuted ? t.unmuteOutgoingScreenAudio : t.muteOutgoingScreenAudio}</span>
                 </button>
               )}
               <button
                 type="button"
                 onClick={onStopScreenShare}
-                className="px-4 py-2.5 rounded-xl bg-sky-500 text-zinc-950 hover:bg-sky-400 shadow-lg shadow-sky-500/20 text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap"
+                className="flex-1 sm:flex-initial min-h-[42px] px-3.5 sm:px-4 py-2 rounded-xl bg-sky-500 text-zinc-950 hover:bg-sky-400 shadow-lg shadow-sky-500/20 text-xs font-semibold flex items-center justify-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap"
               >
-                <MonitorOff className="w-4 h-4" />
-                {t.stopShare}
+                <MonitorOff className="w-4 h-4 shrink-0" />
+                <span>{t.stopShare}</span>
               </button>
             </>
           ) : (
@@ -468,18 +470,18 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
               <button
                 type="button"
                 onClick={onStartScreenShare}
-                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white shadow-lg shadow-blue-500/20 text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap"
+                className="flex-1 sm:flex-initial min-h-[42px] px-3.5 sm:px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white shadow-lg shadow-blue-500/20 text-xs font-semibold flex items-center justify-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap"
               >
-                <MonitorUp className="w-4 h-4" />
-                {t.shareScreen}
+                <MonitorUp className="w-4 h-4 shrink-0" />
+                <span>{t.shareScreen}</span>
               </button>
               <button
                 type="button"
                 onClick={onStartGameShare}
-                className="px-4 py-2.5 rounded-xl bg-violet-500/20 hover:bg-violet-500/30 border border-violet-400/35 text-violet-100 text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap"
+                className="flex-1 sm:flex-initial min-h-[42px] px-3.5 sm:px-4 py-2 rounded-xl bg-violet-500/20 hover:bg-violet-500/30 border border-violet-400/35 text-violet-100 text-xs font-semibold flex items-center justify-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap"
               >
-                <Gamepad2 className="w-4 h-4 text-violet-300" />
-                {t.shareGameBtn}
+                <Gamepad2 className="w-4 h-4 text-violet-300 shrink-0" />
+                <span>{t.shareGameBtn}</span>
               </button>
             </>
           )}
@@ -487,10 +489,10 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
           <button
             type="button"
             onClick={onLeave}
-            className="px-3.5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap"
+            className="flex-1 sm:flex-initial min-h-[42px] px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap"
           >
-            <PhoneOff className="w-4 h-4" />
-            {t.leaveCall}
+            <PhoneOff className="w-4 h-4 shrink-0" />
+            <span>{t.leaveCall}</span>
           </button>
         </div>
       </div>

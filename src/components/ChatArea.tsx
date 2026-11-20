@@ -129,6 +129,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState('');
   const [pickerMessageId, setPickerMessageId] = useState<string | null>(null);
+  const [activeTouchMsgId, setActiveTouchMsgId] = useState<string | null>(null);
   const [composerEmojiOpen, setComposerEmojiOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; name: string } | null>(null);
   const [expandedPdfs, setExpandedPdfs] = useState<Record<string, boolean>>({});
@@ -168,6 +169,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     setReplyTo(null);
     setEditingId(null);
     setPickerMessageId(null);
+    setActiveTouchMsgId(null);
     setComposerEmojiOpen(false);
     setUploadError(null);
   }, [channelKey]);
@@ -327,13 +329,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[#0B0C10]">
       {/* Discreet 5-Minute Ephemeral File Notice Strip */}
-      <div className="px-4 sm:px-6 py-2 border-b border-white/6 bg-white/[0.015] flex items-center gap-2 text-[11px] text-zinc-400 shrink-0">
+      <div className="px-3 sm:px-6 py-2 border-b border-white/6 bg-white/[0.015] flex items-center gap-2 text-[11px] text-zinc-400 shrink-0">
         <Clock className="w-3.5 h-3.5 text-blue-400 shrink-0" />
         <span className="truncate">{t.tempFileBanner}</span>
       </div>
 
       {/* Messages Feed */}
-      <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5 space-y-1">
+      <div className="flex-1 overflow-y-auto px-2.5 sm:px-6 py-4 sm:py-5 space-y-1">
         {visibleMessages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center py-16">
             <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/8 flex items-center justify-center text-zinc-400 mb-4">
@@ -367,34 +369,46 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               msg.attachmentName?.toLowerCase().endsWith('.pdf');
             const pdfExpanded = Boolean(expandedPdfs[msg.id]);
 
+            const isTouchSelected = activeTouchMsgId === msg.id || pickerMessageId === msg.id;
+
             return (
               <div
                 key={msg.id}
-                className={`group relative rounded-xl px-3 transition-colors hover:bg-white/[0.03] ${
-                  isGrouped ? 'py-1' : 'pt-3 pb-1.5 mt-1'
-                }`}
+                onClick={(e) => {
+                  const target = e.target as HTMLElement;
+                  if (target.closest('button, a, input, video, iframe')) return;
+                  setActiveTouchMsgId((prevId) => (prevId === msg.id ? null : msg.id));
+                }}
+                className={`group relative rounded-xl px-2.5 sm:px-3 transition-colors hover:bg-white/[0.03] ${
+                  isTouchSelected ? 'bg-white/[0.04]' : ''
+                } ${isGrouped ? 'py-1' : 'pt-3 pb-1.5 mt-1'}`}
               >
-                {/* Hover Action Toolbar */}
-                <div className="hidden group-hover:flex items-center gap-0.5 absolute -top-3 right-3 z-10 px-1.5 py-1 rounded-lg bg-[#161820] border border-white/10 shadow-xl">
+                {/* Hover / Tap Action Toolbar */}
+                <div
+                  className={`${
+                    isTouchSelected ? 'flex' : 'hidden group-hover:flex'
+                  } items-center gap-0.5 absolute -top-3 right-2 sm:right-3 z-10 px-1.5 py-1 rounded-xl bg-[#161820] border border-white/10 shadow-xl`}
+                >
                   <button
                     type="button"
                     onClick={() => setPickerMessageId(pickerMessageId === msg.id ? null : msg.id)}
                     title="Emoji"
-                    className="p-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/10"
+                    className="p-2 sm:p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10"
                   >
                     <Smile className="w-3.5 h-3.5" />
                   </button>
                   <button
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
+                      setActiveTouchMsgId(null);
                       setReplyTo({
                         id: msg.id,
                         authorName: msg.authorName,
                         snippet: msg.content || msg.attachmentName || 'File',
-                      })
-                    }
+                      });
+                    }}
                     title={t.replyAction}
-                    className="p-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/10"
+                    className="p-2 sm:p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10"
                   >
                     <CornerUpLeft className="w-3.5 h-3.5" />
                   </button>
@@ -402,11 +416,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     <button
                       type="button"
                       onClick={() => {
+                        setActiveTouchMsgId(null);
                         setEditingId(msg.id);
                         setEditingDraft(msg.content);
                       }}
                       title={t.editAction}
-                      className="p-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/10"
+                      className="p-2 sm:p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
                     </button>
@@ -414,9 +429,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   {(isOwn || canModerate) && (
                     <button
                       type="button"
-                      onClick={() => onDeleteMessage(msg.id)}
+                      onClick={() => {
+                        setActiveTouchMsgId(null);
+                        onDeleteMessage(msg.id);
+                      }}
                       title={t.deleteAction}
-                      className="p-1.5 rounded-md text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10"
+                      className="p-2 sm:p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -425,7 +443,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
                 {/* Inline Emoji Picker */}
                 {pickerMessageId === msg.id && (
-                  <div className="absolute right-3 top-6 z-20 flex items-center gap-1 p-1.5 rounded-xl bg-[#181A23] border border-white/12 shadow-2xl">
+                  <div className="absolute right-2 sm:right-3 top-7 z-20 flex flex-wrap items-center gap-1 max-w-[calc(100vw-2rem)] p-1.5 rounded-xl bg-[#181A23] border border-white/12 shadow-2xl">
                     {QUICK_EMOJIS.map((emoji) => {
                       const already = (msgReactions[emoji] || []).includes(currentUser.uid);
                       return (
@@ -434,9 +452,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                           type="button"
                           onClick={async () => {
                             setPickerMessageId(null);
+                            setActiveTouchMsgId(null);
                             await onToggleReaction(msg.id, emoji, already);
                           }}
-                          className="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center text-base transition-transform hover:scale-110"
+                          className="w-8 h-8 sm:w-7 sm:h-7 rounded-lg hover:bg-white/10 flex items-center justify-center text-base transition-transform hover:scale-110"
                         >
                           {emoji}
                         </button>
@@ -447,16 +466,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
                 {/* Reply Quote Banner */}
                 {msg.replyToId && (
-                  <div className="flex items-center gap-2 ml-12 mb-1 text-xs text-zinc-400">
+                  <div className="flex items-center gap-2 ml-9 sm:ml-12 mb-1 text-xs text-zinc-400 min-w-0">
                     <CornerUpLeft className="w-3 h-3 text-blue-400 shrink-0" />
-                    <span className="font-medium text-zinc-300">{msg.replyToAuthor}</span>
-                    <span className="truncate max-w-md text-zinc-500">{msg.replyToSnippet}</span>
+                    <span className="font-medium text-zinc-300 shrink-0">{msg.replyToAuthor}</span>
+                    <span className="truncate text-zinc-500">{msg.replyToSnippet}</span>
                   </div>
                 )}
 
-                <div className="flex items-start gap-3">
+                <div className="flex items-start gap-2.5 sm:gap-3">
                   {isGrouped ? (
-                    <div className="w-9 shrink-0 text-[10px] font-mono text-zinc-600 opacity-0 group-hover:opacity-100 text-right pt-1 select-none tabular-nums">
+                    <div className="w-7 sm:w-9 shrink-0 text-[10px] font-mono text-zinc-600 opacity-0 group-hover:opacity-100 text-right pt-1 select-none tabular-nums">
                       {formatTimestamp(msg.createdAt, lang).split(' ').pop()}
                     </div>
                   ) : (
@@ -544,19 +563,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             </span>
                           </div>
                         ) : isImage ? (
-                          <div className="inline-block space-y-1.5">
+                          <div className="inline-block max-w-full space-y-1.5">
                             <button
                               type="button"
                               onClick={() =>
                                 setLightboxImage({ src: resolvedSrc, name: msg.attachmentName })
                               }
-                              className="block rounded-xl overflow-hidden border border-white/10 max-w-sm hover:opacity-95 transition-opacity"
+                              className="block rounded-xl overflow-hidden border border-white/10 max-w-full sm:max-w-sm hover:opacity-95 transition-opacity"
                             >
                               <img
                                 src={resolvedSrc}
                                 alt={msg.attachmentName || 'Image'}
                                 referrerPolicy="no-referrer"
-                                className="max-h-72 w-auto object-contain bg-black/40"
+                                className="max-h-64 sm:max-h-72 max-w-full w-auto object-contain bg-black/40"
                               />
                             </button>
                             {msg.attachmentExpiresAt && (
@@ -572,14 +591,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             )}
                           </div>
                         ) : isVideo ? (
-                          <div className="max-w-md space-y-1.5">
+                          <div className="w-full max-w-full sm:max-w-md space-y-1.5">
                             <div className="rounded-xl overflow-hidden border border-white/10 bg-black">
                               <video
                                 src={resolvedSrc}
                                 controls
                                 playsInline
                                 preload="metadata"
-                                className="w-full max-h-72 object-contain"
+                                className="w-full max-h-64 sm:max-h-72 object-contain"
                               />
                             </div>
                             <div className="flex items-center justify-between gap-3 text-[11px] font-mono text-zinc-400 tabular-nums">
@@ -595,8 +614,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             </div>
                           </div>
                         ) : (
-                          <div className="space-y-2 max-w-md">
-                            <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10">
+                          <div className="space-y-2 w-full max-w-full sm:max-w-md">
+                            <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5 sm:gap-3 px-3 sm:px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10">
                               <div className="flex items-center gap-3 min-w-0">
                                 <FileText className="w-5 h-5 text-blue-400 shrink-0" />
                                 <div className="min-w-0">
@@ -698,9 +717,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       </div>
 
       {/* Typing Indicator Strip */}
-      <div className="px-6 h-5 flex items-center text-xs text-zinc-400 shrink-0">
+      <div className="px-3 sm:px-6 h-5 flex items-center text-xs text-zinc-400 shrink-0">
         {typingUsers.length > 0 && (
-          <span>
+          <span className="truncate">
             {typingUsers.length === 1
               ? `${typingUsers[0]} ${t.typingOne}`
               : `${typingUsers.join(', ')} ${t.typingMany}`}
@@ -709,7 +728,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       </div>
 
       {/* Composer */}
-      <div className="px-4 sm:px-6 pb-4 pt-1 shrink-0">
+      <div className="px-3 sm:px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4 pt-1 shrink-0">
         {uploadError && (
           <div className="mb-2 px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-rose-300 flex items-center justify-between">
             <span>{uploadError}</span>
@@ -773,7 +792,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
         <form
           onSubmit={handleSend}
-          className="relative flex items-center gap-2 px-3 py-2 rounded-2xl bg-[#14161D] border border-white/10 focus-within:border-blue-500/60 transition-colors"
+          className="relative flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-2xl bg-[#14161D] border border-white/10 focus-within:border-blue-500/60 transition-colors"
         >
           <input
             ref={fileInputRef}
@@ -787,7 +806,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             disabled={uploadingFile}
             onClick={() => fileInputRef.current?.click()}
             title={t.attachFileTitle}
-            className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/8 transition-colors shrink-0 disabled:opacity-40"
+            className="min-h-[40px] min-w-[40px] rounded-xl text-zinc-400 hover:text-white hover:bg-white/8 transition-colors shrink-0 disabled:opacity-40 flex items-center justify-center"
           >
             <Paperclip className="w-4 h-4" />
           </button>
@@ -798,7 +817,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             maxLength={FIELD_LIMITS.MESSAGE_CONTENT_MAX}
             onChange={(e) => handleDraftChange(e.target.value)}
             placeholder={placeholder}
-            className="flex-1 bg-transparent text-sm text-white placeholder:text-zinc-500 focus:outline-none py-1.5"
+            className="flex-1 min-w-0 bg-transparent text-base sm:text-sm text-white placeholder:text-zinc-500 focus:outline-none py-1.5"
           />
 
           <div className="relative">
@@ -806,12 +825,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               type="button"
               onClick={() => setComposerEmojiOpen((o) => !o)}
               title="Emoji"
-              className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/8 transition-colors shrink-0"
+              className="min-h-[40px] min-w-[40px] rounded-xl text-zinc-400 hover:text-white hover:bg-white/8 transition-colors shrink-0 flex items-center justify-center"
             >
               <Smile className="w-4 h-4" />
             </button>
             {composerEmojiOpen && (
-              <div className="absolute bottom-12 right-0 z-20 flex flex-wrap gap-1 p-2 rounded-xl bg-[#181A23] border border-white/12 shadow-2xl w-52">
+              <div className="absolute bottom-12 right-0 z-20 flex flex-wrap gap-1 p-2 rounded-xl bg-[#181A23] border border-white/12 shadow-2xl w-52 max-w-[calc(100vw-2rem)]">
                 {QUICK_EMOJIS.map((emoji) => (
                   <button
                     key={emoji}
@@ -833,7 +852,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             type="submit"
             disabled={sending || uploadingFile || (!draft.trim() && !attachment)}
             title={t.sendMessageTitle}
-            className="p-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white disabled:opacity-40 transition-colors shrink-0"
+            className="min-h-[40px] min-w-[40px] rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white disabled:opacity-40 transition-colors shrink-0 flex items-center justify-center"
           >
             <SendHorizontal className="w-4 h-4" />
           </button>
@@ -844,27 +863,27 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       {lightboxImage && (
         <div
           onClick={() => setLightboxImage(null)}
-          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-6"
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6"
         >
-          <div onClick={(e) => e.stopPropagation()} className="relative max-w-4xl max-h-[90vh] flex flex-col items-center">
+          <div onClick={(e) => e.stopPropagation()} className="relative max-w-4xl max-h-[90dvh] flex flex-col items-center">
             <img
               src={lightboxImage.src}
               alt={lightboxImage.name}
-              className="max-w-full max-h-[82vh] rounded-2xl border border-white/10 object-contain"
+              className="max-w-full max-h-[76dvh] sm:max-h-[82vh] rounded-2xl border border-white/10 object-contain"
             />
-            <div className="mt-3 flex items-center gap-3">
-              <span className="text-xs text-zinc-300">{lightboxImage.name}</span>
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+              <span className="text-xs text-zinc-300 truncate max-w-[200px] sm:max-w-xs">{lightboxImage.name}</span>
               <a
                 href={lightboxImage.src}
                 download={lightboxImage.name}
-                className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs text-white flex items-center gap-1.5"
+                className="min-h-[38px] px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs text-white flex items-center gap-1.5"
               >
                 <Download className="w-3.5 h-3.5" /> {t.tempFileDownload}
               </a>
               <button
                 type="button"
                 onClick={() => setLightboxImage(null)}
-                className="px-3 py-1.5 rounded-lg bg-white text-zinc-950 text-xs font-medium"
+                className="min-h-[38px] px-3 py-1.5 rounded-lg bg-white text-zinc-950 text-xs font-medium"
               >
                 {t.closeBtn}
               </button>

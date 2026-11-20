@@ -74,7 +74,7 @@ export const EntryView: React.FC<EntryViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-[#07080B] text-zinc-100 relative overflow-y-auto flex items-center justify-center p-4 sm:p-8">
+    <div className="min-h-[100dvh] bg-[#07080B] text-zinc-100 relative overflow-y-auto flex items-start lg:items-center justify-center px-4 py-6 sm:p-8 pb-[max(2rem,env(safe-area-inset-bottom))]">
       {/* Subtle Blue & Violet Atmospheric Backdrop */}
       <div
         aria-hidden="true"
@@ -84,10 +84,33 @@ export const EntryView: React.FC<EntryViewProps> = ({
         <div className="absolute -bottom-44 -right-24 w-[520px] h-[520px] rounded-full bg-violet-600/14 blur-[150px]" />
       </div>
 
-      <div className="relative z-10 w-full max-w-5xl grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
+      <div className="relative z-10 w-full max-w-5xl grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8 lg:gap-10 items-center">
+        {/* Mobile & Tablet Compact Brand Header */}
+        <div className="lg:hidden flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-500/25 border border-white/15 shrink-0">
+              <span className="font-display font-bold text-base tracking-tight text-white">Z</span>
+            </div>
+            <div className="min-w-0">
+              <div className="font-display font-bold text-lg tracking-tight text-white truncate">
+                {t.brandName}
+              </div>
+              <div className="text-[11px] text-zinc-400 truncate">{t.brandSubtitle}</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenPrivacy}
+            className="min-h-[40px] px-3 rounded-xl bg-white/[0.04] border border-white/10 text-xs text-blue-300 font-medium inline-flex items-center gap-1.5 shrink-0"
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>GDPR</span>
+          </button>
+        </div>
+
         {/* Brand & Value Overview */}
-        <section className="lg:col-span-6 space-y-6">
-          <div className="flex items-center gap-3">
+        <section className="order-2 lg:order-1 lg:col-span-6 space-y-5 sm:space-y-6">
+          <div className="hidden lg:flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-500/25 border border-white/15">
               <span className="font-display font-bold text-lg tracking-tight text-white">Z</span>
             </div>
@@ -99,8 +122,8 @@ export const EntryView: React.FC<EntryViewProps> = ({
             </div>
           </div>
 
-          <div className="space-y-3">
-            <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-white leading-[1.15]">
+          <div className="space-y-2.5 sm:space-y-3">
+            <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-white leading-[1.15]">
               {t.entryHeadline}
             </h1>
             <p className="text-sm sm:text-[15px] text-zinc-400 leading-relaxed max-w-xl">
@@ -108,7 +131,7 @@ export const EntryView: React.FC<EntryViewProps> = ({
             </p>
           </div>
 
-          <div className="space-y-3 pt-1">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-1 gap-3 pt-1">
             <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-white/[0.025] border border-white/8">
               <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-400/25 text-blue-400 flex items-center justify-center shrink-0">
                 <Clock className="w-4 h-4" />
@@ -144,7 +167,7 @@ export const EntryView: React.FC<EntryViewProps> = ({
             <button
               type="button"
               onClick={onOpenPrivacy}
-              className="inline-flex items-center gap-1.5 text-blue-400 hover:text-blue-300 font-medium underline underline-offset-4"
+              className="inline-flex items-center gap-1.5 text-blue-400 hover:text-blue-300 font-medium underline underline-offset-4 py-1"
             >
               <ShieldCheck className="w-3.5 h-3.5" />
               {t.readPrivacyPolicy}
@@ -155,22 +178,22 @@ export const EntryView: React.FC<EntryViewProps> = ({
         </section>
 
         {/* Registration-Free Entry Card */}
-        <section className="lg:col-span-6">
-          <div className="rounded-3xl border border-white/12 glass-elevated p-6 sm:p-8 shadow-2xl">
+        <section className="order-1 lg:order-2 lg:col-span-6">
+          <div className="rounded-2xl sm:rounded-3xl border border-white/12 glass-elevated p-5 sm:p-8 shadow-2xl">
             {/* Language Selector */}
-            <div className="flex items-center justify-between gap-3 pb-5 mb-5 border-b border-white/8">
-              <div className="flex items-center gap-2 text-xs font-medium text-zinc-300">
-                <Globe className="w-4 h-4 text-blue-400" />
-                <span>{t.languageLabel}</span>
+            <div className="flex items-center justify-between gap-3 pb-4 sm:pb-5 mb-4 sm:mb-5 border-b border-white/8">
+              <div className="flex items-center gap-2 text-xs font-medium text-zinc-300 min-w-0">
+                <Globe className="w-4 h-4 text-blue-400 shrink-0" />
+                <span className="truncate">{t.languageLabel}</span>
               </div>
-              <div className="flex items-center gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/8">
+              <div className="flex items-center gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/8 shrink-0">
                 {LANGUAGES.map((item) => (
                   <button
                     key={item.code}
                     type="button"
                     onClick={() => setLang(item.code)}
                     title={item.label}
-                    className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                    className={`min-h-[36px] min-w-[38px] px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
                       lang === item.code
                         ? 'bg-gradient-to-r from-blue-500 to-violet-600 text-white shadow'
                         : 'text-zinc-400 hover:text-white'
@@ -182,7 +205,7 @@ export const EntryView: React.FC<EntryViewProps> = ({
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
               {/* Nickname */}
               <div>
                 <label className="block text-xs font-medium text-zinc-300 mb-1.5">
@@ -196,7 +219,7 @@ export const EntryView: React.FC<EntryViewProps> = ({
                   value={nickname}
                   onChange={(e) => setNickname(e.target.value)}
                   placeholder={t.nicknamePlaceholder}
-                  className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/12 text-sm text-white placeholder:text-zinc-500 focus:border-blue-500 transition-colors"
+                  className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/12 text-base sm:text-sm text-white placeholder:text-zinc-500 focus:border-blue-500 transition-colors"
                 />
               </div>
 
@@ -206,14 +229,14 @@ export const EntryView: React.FC<EntryViewProps> = ({
                   <label className="text-xs font-medium text-zinc-300">{t.avatarLabel}</label>
                 </div>
 
-                <div className="flex items-center gap-4 mb-3.5">
+                <div className="flex items-center gap-3.5 sm:gap-4 mb-3.5">
                   <Avatar
                     name={nickname || 'ZONE'}
                     src={avatarDataUrl}
                     size="lg"
                   />
                   <div className="flex flex-wrap items-center gap-2">
-                    <label className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-xs font-medium text-white cursor-pointer transition-colors">
+                    <label className="inline-flex items-center gap-1.5 min-h-[42px] px-3.5 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-xs font-medium text-white cursor-pointer transition-colors">
                       <Camera className="w-3.5 h-3.5 text-blue-400" />
                       {t.uploadPhoto}
                       <input
@@ -227,7 +250,7 @@ export const EntryView: React.FC<EntryViewProps> = ({
                       <button
                         type="button"
                         onClick={() => setAvatarDataUrl('')}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/8 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+                        className="inline-flex items-center gap-1.5 min-h-[42px] px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/8 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         {t.removePhoto}
@@ -241,7 +264,7 @@ export const EntryView: React.FC<EntryViewProps> = ({
                 )}
 
                 <div className="text-[11px] text-zinc-500 mb-2">{t.presetAvatarsLabel}</div>
-                <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-2.5 sm:gap-2">
                   {PRESET_AVATARS.map((preset) => {
                     const selected = avatarDataUrl === preset.dataUrl;
                     return (
@@ -250,7 +273,7 @@ export const EntryView: React.FC<EntryViewProps> = ({
                         type="button"
                         onClick={() => setAvatarDataUrl(preset.dataUrl)}
                         title={preset.label}
-                        className={`aspect-square rounded-xl overflow-hidden border transition-all ${
+                        className={`aspect-square min-h-[44px] rounded-xl overflow-hidden border transition-all ${
                           selected
                             ? 'border-blue-400 ring-2 ring-blue-500/40 scale-105'
                             : 'border-white/10 opacity-75 hover:opacity-100'
@@ -277,14 +300,14 @@ export const EntryView: React.FC<EntryViewProps> = ({
                   value={inviteInput}
                   onChange={(e) => setInviteInput(e.target.value)}
                   placeholder={t.inviteOptionalPlaceholder}
-                  className="w-full px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-xs font-mono text-white placeholder:text-zinc-500"
+                  className="w-full px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-base sm:text-xs font-mono text-white placeholder:text-zinc-500"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={!nickname.trim()}
-                className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 disabled:opacity-45 text-white text-sm font-bold tracking-wide shadow-lg shadow-blue-600/25 flex items-center justify-center gap-2 transition-all"
+                className="w-full min-h-[48px] py-3.5 px-6 rounded-2xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 disabled:opacity-45 text-white text-sm font-bold tracking-wide shadow-lg shadow-blue-600/25 flex items-center justify-center gap-2 transition-all active:scale-[0.99]"
               >
                 <Sparkles className="w-4 h-4" />
                 {t.enterButton}

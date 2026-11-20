@@ -20,6 +20,7 @@ import {
   Trash2,
   Video,
   Volume2,
+  X,
 } from 'lucide-react';
 import {
   CategoryDoc,
@@ -60,6 +61,7 @@ interface ChannelSidebarProps {
   onDisconnectVoice: () => void;
   onChangePresence: (presence: PresenceStatus) => void;
   onOpenUserSettings: () => void;
+  onCloseMobile?: () => void;
 }
 
 export const ChannelSidebar: React.FC<ChannelSidebarProps> = ({
@@ -89,6 +91,7 @@ export const ChannelSidebar: React.FC<ChannelSidebarProps> = ({
   onDisconnectVoice,
   onChangePresence,
   onOpenUserSettings,
+  onCloseMobile,
 }) => {
   const { t } = useI18n();
   const [collapsedCats, setCollapsedCats] = useState<Record<string, boolean>>({});
@@ -98,9 +101,9 @@ export const ChannelSidebar: React.FC<ChannelSidebarProps> = ({
   const sortedCategories = [...categories].sort((a, b) => a.position - b.position);
 
   return (
-    <aside className="w-64 shrink-0 bg-[#101116] border-r border-white/8 flex flex-col select-none">
+    <aside className="w-[min(16.5rem,calc(100vw-72px-1.25rem))] sm:w-64 shrink-0 bg-[#101116] border-r border-white/8 flex flex-col select-none h-full">
       {/* Room Header */}
-      <div className="h-14 px-4 border-b border-white/8 flex items-center justify-between gap-2">
+      <div className="h-14 px-3 sm:px-4 border-b border-white/8 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             {server.visibility === 'private' && (
@@ -134,7 +137,7 @@ export const ChannelSidebar: React.FC<ChannelSidebarProps> = ({
               type="button"
               onClick={onOpenServerSettings}
               title={t.roomSettings}
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/8 transition-colors"
+              className="p-2 sm:p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/8 transition-colors"
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
@@ -143,9 +146,19 @@ export const ChannelSidebar: React.FC<ChannelSidebarProps> = ({
               type="button"
               onClick={onLeaveServer}
               title={t.leaveRoom}
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+              className="p-2 sm:p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
             >
               <LogOut className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {onCloseMobile && (
+            <button
+              type="button"
+              onClick={onCloseMobile}
+              aria-label={t.closeBtn}
+              className="lg:hidden p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              <X className="w-4 h-4" />
             </button>
           )}
         </div>
@@ -192,7 +205,7 @@ export const ChannelSidebar: React.FC<ChannelSidebarProps> = ({
                   <span className="truncate">{cat.name}</span>
                 </button>
                 {canManage && (
-                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                  <div className="flex items-center gap-0.5 opacity-80 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity shrink-0">
                     <button
                       type="button"
                       onClick={() => onCreateChannel(cat.id)}
@@ -243,7 +256,7 @@ export const ChannelSidebar: React.FC<ChannelSidebarProps> = ({
                           <button
                             type="button"
                             onClick={() => onSelectChannel(ch)}
-                            className="flex items-center gap-2.5 min-w-0 flex-1 text-left"
+                            className="flex items-center gap-2.5 min-w-0 flex-1 text-left min-h-[28px]"
                           >
                             <Icon
                               className={`w-4 h-4 shrink-0 ${
@@ -258,7 +271,11 @@ export const ChannelSidebar: React.FC<ChannelSidebarProps> = ({
                           </button>
 
                           {canManage && (
-                            <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+                            <div
+                              className={`flex items-center gap-0.5 shrink-0 ${
+                                isActive ? 'lg:flex' : 'lg:hidden lg:group-hover:flex'
+                              }`}
+                            >
                               {idx > 0 && (
                                 <button
                                   type="button"
@@ -370,7 +387,7 @@ export const ChannelSidebar: React.FC<ChannelSidebarProps> = ({
       )}
 
       {/* User Footer Card */}
-      <div className="relative p-2.5 border-t border-white/8 bg-[#0D0E12] flex items-center justify-between gap-2">
+      <div className="relative p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] border-t border-white/8 bg-[#0D0E12] flex items-center justify-between gap-2">
         <button
           type="button"
           onClick={() => setPresenceMenuOpen((o) => !o)}

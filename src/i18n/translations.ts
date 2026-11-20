@@ -259,6 +259,8 @@ export interface TranslationStrings {
   searchRoomsPlaceholder: string;
   localModeBanner: string;
   connectingRealtimeNotice: string;
+  backBtn: string;
+  contactsTabLabel: string;
 }
 
 export const TRANSLATIONS: Record<LanguageCode, TranslationStrings> = {
@@ -519,6 +521,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationStrings> = {
     localModeBanner:
       'Modo local (apenas este navegador): nenhum servidor WebSocket conectado. Para conectar outras pessoas, configure VITE_WS_URL ou abra a URL com backend ativo.',
     connectingRealtimeNotice: 'Conectando ao servidor em tempo real...',
+    backBtn: 'Voltar',
+    contactsTabLabel: 'Contatos',
   },
 
   en: {
@@ -778,6 +782,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationStrings> = {
     localModeBanner:
       'Local browser-only mode: no WebSocket backend connected. To connect with other people, configure VITE_WS_URL or use a hosted backend URL.',
     connectingRealtimeNotice: 'Connecting to real-time server...',
+    backBtn: 'Back',
+    contactsTabLabel: 'Contacts',
   },
 
   ru: {
@@ -1037,5 +1043,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationStrings> = {
     localModeBanner:
       'Локальный режим (только этот браузер): сервер WebSocket не подключён. Чтобы видеть других людей, укажите VITE_WS_URL или используйте активный сервер.',
     connectingRealtimeNotice: 'Подключение к серверу реального времени...',
+    backBtn: 'Назад',
+    contactsTabLabel: 'Контакты',
   },
 };

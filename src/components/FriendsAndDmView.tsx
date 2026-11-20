@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  ArrowLeft,
   Ban,
   Check,
   MessageSquare,
@@ -84,6 +85,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
 }) => {
   const { t } = useI18n();
   const [tab, setTab] = useState<FriendsTab>('all');
+  const [mobilePane, setMobilePane] = useState<'dms' | 'contacts'>('contacts');
   const [searchTerm, setSearchTerm] = useState('');
   const [addUsername, setAddUsername] = useState('');
   const [addBusy, setAddBusy] = useState(false);
@@ -151,11 +153,47 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
       : `${activeDmPeerUid}_${currentUser.uid}`
     : '';
 
+  const showMobileDmsList = !activeDmPeerUid && mobilePane === 'dms';
+
   return (
-    <div className="flex-1 flex min-w-0 min-h-0">
-      {/* Left DM & Contacts Drawer */}
-      <aside className="w-64 shrink-0 bg-[#101116] border-r border-white/8 flex flex-col select-none">
-        <div className="h-14 px-3 border-b border-white/8 flex items-center">
+    <div className="flex-1 flex flex-col md:flex-row min-w-0 min-h-0">
+      {/* Mobile Sub-Navigation when not inside an active DM */}
+      {!activeDmPeerUid && (
+        <div className="md:hidden px-3 py-2 border-b border-white/8 bg-[#0E0F14] flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setMobilePane('contacts')}
+            className={`flex-1 min-h-[40px] px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+              mobilePane === 'contacts'
+                ? 'bg-blue-500/20 border border-blue-400/35 text-white'
+                : 'bg-white/[0.04] border border-white/8 text-zinc-400'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>{t.contactsTabLabel}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobilePane('dms')}
+            className={`flex-1 min-h-[40px] px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+              mobilePane === 'dms'
+                ? 'bg-blue-500/20 border border-blue-400/35 text-white'
+                : 'bg-white/[0.04] border border-white/8 text-zinc-400'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>{t.directMessages}</span>
+          </button>
+        </div>
+      )}
+
+      {/* Left DM & Contacts Drawer (full-width on mobile when DMs tab chosen, sidebar on md+) */}
+      <aside
+        className={`${
+          showMobileDmsList ? 'flex w-full' : 'hidden'
+        } md:flex md:w-60 lg:w-64 shrink-0 bg-[#101116] md:border-r border-white/8 flex-col select-none min-h-0 flex-1 md:flex-none`}
+      >
+        <div className="hidden md:flex h-14 px-3 border-b border-white/8 items-center">
           <button
             type="button"
             onClick={onSelectFriendsHome}
@@ -226,7 +264,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
         </div>
 
         {/* User Card Footer */}
-        <div className="p-2.5 border-t border-white/8 bg-[#0D0E12] flex items-center justify-between gap-2">
+        <div className="p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] border-t border-white/8 bg-[#0D0E12] flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
             <Avatar
               name={currentUser.displayName}
@@ -248,7 +286,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
             type="button"
             onClick={onOpenUserSettings}
             title={t.userSettings}
-            className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/8"
+            className="min-h-[40px] min-w-[40px] rounded-xl text-zinc-400 hover:text-white hover:bg-white/8 flex items-center justify-center"
           >
             <Settings className="w-4 h-4" />
           </button>
@@ -258,8 +296,19 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
       {/* Main Content */}
       {activeDmPeerUid && activeDmPeer ? (
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
-          <header className="h-14 px-5 border-b border-white/8 bg-[#0E0F14]/90 backdrop-blur-md flex items-center justify-between gap-4 shrink-0">
-            <div className="flex items-center gap-3 min-w-0">
+          <header className="h-14 px-3 sm:px-5 border-b border-white/8 bg-[#0E0F14]/90 backdrop-blur-md flex items-center justify-between gap-3 shrink-0">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobilePane('dms');
+                  onSelectFriendsHome();
+                }}
+                aria-label={t.backBtn}
+                className="md:hidden min-h-[40px] min-w-[40px] rounded-xl bg-white/[0.04] hover:bg-white/10 text-zinc-200 flex items-center justify-center shrink-0"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
               <Avatar
                 name={activeDmPeer.displayName}
                 src={activeDmPeer.avatarDataUrl}
@@ -282,10 +331,10 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
             <button
               type="button"
               onClick={() => onToggleBlockUser(activeDmPeer.uid)}
-              className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-rose-500/15 border border-white/10 text-xs text-zinc-300 hover:text-rose-300 flex items-center gap-1.5 transition-colors whitespace-nowrap"
+              className="min-h-[38px] px-3 py-1.5 rounded-lg bg-white/5 hover:bg-rose-500/15 border border-white/10 text-xs text-zinc-300 hover:text-rose-300 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
             >
               <Ban className="w-3.5 h-3.5" />
-              {t.blockBtn}
+              <span className="hidden sm:inline">{t.blockBtn}</span>
             </button>
           </header>
 
@@ -308,14 +357,18 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
           />
         </div>
       ) : (
-        <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-[#0B0C10]">
+        <div
+          className={`${
+            showMobileDmsList ? 'hidden md:flex' : 'flex'
+          } flex-1 flex-col min-w-0 min-h-0 bg-[#0B0C10]`}
+        >
           {/* Contacts Top Bar */}
-          <header className="h-14 px-5 border-b border-white/8 flex items-center gap-4 overflow-x-auto shrink-0">
-            <div className="flex items-center gap-2 text-sm font-semibold text-white shrink-0">
+          <header className="h-14 px-3 sm:px-5 border-b border-white/8 flex items-center gap-2 sm:gap-4 overflow-x-auto no-scrollbar shrink-0">
+            <div className="hidden sm:flex items-center gap-2 text-sm font-semibold text-white shrink-0">
               <Users className="w-4 h-4 text-blue-400" />
               <span>{t.friendsAndDmsTitle}</span>
             </div>
-            <div className="h-4 w-px bg-white/10 shrink-0" />
+            <div className="hidden sm:block h-4 w-px bg-white/10 shrink-0" />
             <div className="flex items-center gap-1.5">
               {(
                 [
@@ -354,10 +407,10 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
           </header>
 
           {/* Contacts Body */}
-          <div className="flex-1 overflow-y-auto p-6 max-w-4xl w-full mx-auto">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] max-w-4xl w-full mx-auto">
             {tab === 'add' && (
               <div className="space-y-5">
-                <div className="rounded-2xl border border-white/10 bg-[#111319] p-6">
+                <div className="rounded-2xl border border-white/10 bg-[#111319] p-4 sm:p-6">
                   <h3 className="font-display text-lg font-semibold text-white mb-1">
                     {t.addFriendBtn}
                   </h3>
@@ -371,12 +424,12 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                       value={addUsername}
                       onChange={(e) => setAddUsername(e.target.value)}
                       placeholder={t.searchParticipantsPlaceholder}
-                      className="flex-1 px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white placeholder:text-zinc-500 focus:border-blue-500"
+                      className="flex-1 px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-base sm:text-sm text-white placeholder:text-zinc-500 focus:border-blue-500"
                     />
                     <button
                       type="submit"
                       disabled={addBusy || !addUsername.trim()}
-                      className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors disabled:opacity-50 whitespace-nowrap"
+                      className="min-h-[44px] px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors disabled:opacity-50 whitespace-nowrap"
                     >
                       {t.addFriendBtn}
                     </button>
@@ -430,7 +483,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                           return (
                             <div
                               key={u.uid}
-                              className="flex items-center justify-between gap-3 py-3"
+                              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-3.5"
                             >
                               <div className="flex items-center gap-3 min-w-0">
                                 <Avatar
@@ -451,12 +504,12 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                                   </div>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-2 shrink-0">
+                              <div className="flex flex-wrap items-center gap-2 shrink-0">
                                 <button
                                   type="button"
                                   onClick={() => onOpenDmWith(u.uid)}
                                   title={t.directMessageBtn}
-                                  className="px-3 py-1.5 rounded-xl bg-white/8 hover:bg-blue-500/20 text-zinc-200 hover:text-blue-200 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                                  className="min-h-[40px] px-3 py-1.5 rounded-xl bg-white/8 hover:bg-blue-500/20 text-zinc-200 hover:text-blue-200 text-xs font-medium flex items-center gap-1.5 transition-colors"
                                 >
                                   <MessageSquare className="w-3.5 h-3.5" />
                                   {t.directMessageBtn}
@@ -481,7 +534,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                                         });
                                       }
                                     }}
-                                    className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-1.5 transition-colors"
+                                    className="min-h-[40px] px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-1.5 transition-colors"
                                   >
                                     <UserPlus className="w-3.5 h-3.5" />
                                     {t.addFriendBtn}
@@ -501,23 +554,23 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
             {(tab === 'online' || tab === 'all') && (
               <div className="space-y-4">
                 <div className="relative">
-                  <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder="..."
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white placeholder:text-zinc-500"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-base sm:text-sm text-white placeholder:text-zinc-500"
                   />
                 </div>
 
                 {filteredFriends.length === 0 ? (
-                  <div className="rounded-2xl border border-white/8 bg-[#111319] p-10 text-center">
+                  <div className="rounded-2xl border border-white/8 bg-[#111319] p-8 sm:p-10 text-center">
                     <p className="text-sm text-zinc-300 font-medium">{t.noParticipantsYet}</p>
                     <button
                       type="button"
                       onClick={() => setTab('add')}
-                      className="mt-4 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium"
+                      className="mt-4 min-h-[42px] px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium"
                     >
                       {t.addFriendBtn}
                     </button>
@@ -529,7 +582,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                       return (
                         <div
                           key={friendship.id}
-                          className="flex items-center justify-between gap-4 px-4 py-3.5 hover:bg-white/[0.02]"
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3.5 hover:bg-white/[0.02]"
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <Avatar
@@ -554,12 +607,12 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
                             <button
                               type="button"
                               onClick={() => onOpenDmWith(peerUid)}
                               title={t.directMessageBtn}
-                              className="p-2 rounded-xl bg-white/5 hover:bg-blue-500/20 text-zinc-200 hover:text-blue-200 transition-colors"
+                              className="min-h-[40px] min-w-[40px] p-2 rounded-xl bg-white/5 hover:bg-blue-500/20 text-zinc-200 hover:text-blue-200 transition-colors flex items-center justify-center"
                             >
                               <MessageSquare className="w-4 h-4" />
                             </button>
@@ -567,7 +620,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                               type="button"
                               onClick={() => onToggleBlockUser(peerUid)}
                               title={t.blockBtn}
-                              className="p-2 rounded-xl bg-white/5 hover:bg-rose-500/15 text-zinc-400 hover:text-rose-300 transition-colors"
+                              className="min-h-[40px] min-w-[40px] p-2 rounded-xl bg-white/5 hover:bg-rose-500/15 text-zinc-400 hover:text-rose-300 transition-colors flex items-center justify-center"
                             >
                               <Ban className="w-4 h-4" />
                             </button>
@@ -575,7 +628,7 @@ export const FriendsAndDmView: React.FC<FriendsAndDmViewProps> = ({
                               type="button"
                               onClick={() => onRemoveFriendship(friendship.id)}
                               title={t.deleteAction}
-                              className="p-2 rounded-xl bg-white/5 hover:bg-rose-500/15 text-zinc-400 hover:text-rose-300 transition-colors"
+                              className="min-h-[40px] min-w-[40px] p-2 rounded-xl bg-white/5 hover:bg-rose-500/15 text-zinc-400 hover:text-rose-300 transition-colors flex items-center justify-center"
                             >
                               <UserX className="w-4 h-4" />
                             </button>

@@ -117,7 +117,9 @@ function ZonePlatform() {
   const [activeServerId, setActiveServerId] = useState<string | null>(null);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [activeDmPeerUid, setActiveDmPeerUid] = useState<string | null>(null);
-  const [showMembersDrawer, setShowMembersDrawer] = useState(true);
+  const [showMembersDrawer, setShowMembersDrawer] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
+  );
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [staticBannerDismissed, setStaticBannerDismissed] = useState(false);
 
@@ -597,7 +599,7 @@ function ZonePlatform() {
   };
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[#09090B] text-zinc-100 flex">
+    <div className="h-[100dvh] w-full overflow-hidden bg-[#09090B] text-zinc-100 flex">
       {/* Desktop Navigation Sidebars */}
       <div className="hidden lg:flex h-full shrink-0">
         <ServerSidebar
@@ -666,13 +668,13 @@ function ZonePlatform() {
         )}
       </div>
 
-      {/* Mobile Drawer Overlay */}
+      {/* Mobile & Tablet Left Drawer Overlay */}
       {mobileNavOpen && (
         <div
           onClick={() => setMobileNavOpen(false)}
           className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden flex"
         >
-          <div onClick={(e) => e.stopPropagation()} className="flex h-full">
+          <div onClick={(e) => e.stopPropagation()} className="flex h-full max-w-full">
             <ServerSidebar
               servers={effectiveServers}
               activeMode={activeMode}
@@ -726,22 +728,33 @@ function ZonePlatform() {
                 screenSharing={rtc.screenSharing}
                 currentUser={effectivePublicProfile}
                 onSelectChannel={handleSelectChannel}
-                onCreateCategory={() => setCategoryModalState({ open: true, editing: null })}
-                onEditCategory={(cat) => setCategoryModalState({ open: true, editing: cat })}
+                onCreateCategory={() => {
+                  setMobileNavOpen(false);
+                  setCategoryModalState({ open: true, editing: null });
+                }}
+                onEditCategory={(cat) => {
+                  setMobileNavOpen(false);
+                  setCategoryModalState({ open: true, editing: cat });
+                }}
                 onDeleteCategory={handleDeleteCategoryAction}
-                onCreateChannel={(categoryId) =>
-                  setChannelModalState({ open: true, editing: null, defaultCategoryId: categoryId })
-                }
-                onEditChannel={(ch) =>
+                onCreateChannel={(categoryId) => {
+                  setMobileNavOpen(false);
+                  setChannelModalState({ open: true, editing: null, defaultCategoryId: categoryId });
+                }}
+                onEditChannel={(ch) => {
+                  setMobileNavOpen(false);
                   setChannelModalState({
                     open: true,
                     editing: ch,
                     defaultCategoryId: ch.categoryId,
-                  })
-                }
+                  });
+                }}
                 onDeleteChannel={handleDeleteChannelAction}
                 onMoveChannel={handleMoveChannel}
-                onOpenServerSettings={() => setServerSettingsOpen(true)}
+                onOpenServerSettings={() => {
+                  setMobileNavOpen(false);
+                  setServerSettingsOpen(true);
+                }}
                 onLeaveServer={() => {
                   handleLeaveServerAction();
                   setMobileNavOpen(false);
@@ -751,7 +764,11 @@ function ZonePlatform() {
                 onToggleMic={rtc.toggleMic}
                 onDisconnectVoice={rtc.leaveRoom}
                 onChangePresence={handleChangePresenceAction}
-                onOpenUserSettings={() => setUserSettingsOpen(true)}
+                onOpenUserSettings={() => {
+                  setMobileNavOpen(false);
+                  setUserSettingsOpen(true);
+                }}
+                onCloseMobile={() => setMobileNavOpen(false)}
               />
             )}
           </div>
@@ -761,21 +778,26 @@ function ZonePlatform() {
       {/* Main Content Area */}
       {activeMode === 'home' ? (
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
-          <div className="lg:hidden h-12 px-3 border-b border-white/8 bg-[#0E0F14] flex items-center justify-between">
+          <div className="lg:hidden h-14 px-3 border-b border-white/8 bg-[#0E0F14] flex items-center justify-between shrink-0">
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
-              className="p-2 rounded-lg text-zinc-300 hover:bg-white/10"
+              className="min-h-[44px] min-w-[44px] rounded-xl text-zinc-300 hover:bg-white/10 flex items-center justify-center"
+              aria-label="Menu"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <span className="font-display text-sm font-semibold">{t.friendsAndDmsTitle}</span>
+            <span className="font-display text-sm font-semibold truncate px-2">{t.friendsAndDmsTitle}</span>
             <button
               type="button"
               onClick={() => setNotificationsOpen(true)}
-              className="p-2 rounded-lg text-zinc-300 hover:bg-white/10 relative"
+              className="min-h-[44px] min-w-[44px] rounded-xl text-zinc-300 hover:bg-white/10 relative flex items-center justify-center"
+              aria-label={t.notifications}
             >
               <Bell className="w-5 h-5" />
+              {unreadNotifications > 0 && (
+                <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-rose-500" />
+              )}
             </button>
           </div>
           {usingStaticFallback && !staticBannerDismissed && (
@@ -890,23 +912,24 @@ function ZonePlatform() {
         <div className="flex-1 flex min-w-0 min-h-0">
           <main className="flex-1 flex flex-col min-w-0 min-h-0">
             {/* Top Channel Header */}
-            <header className="h-14 px-4 sm:px-5 border-b border-white/8 bg-[#0E0F14]/90 backdrop-blur-md flex items-center justify-between gap-4 shrink-0">
-              <div className="flex items-center gap-3 min-w-0">
+            <header className="h-14 px-2.5 sm:px-5 border-b border-white/8 bg-[#0E0F14]/90 backdrop-blur-md flex items-center justify-between gap-2 sm:gap-4 shrink-0">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 <button
                   type="button"
                   onClick={() => setMobileNavOpen(true)}
-                  className="lg:hidden p-1.5 rounded-lg text-zinc-300 hover:bg-white/10 shrink-0"
+                  aria-label="Menu"
+                  className="lg:hidden min-h-[40px] min-w-[40px] rounded-xl text-zinc-300 hover:bg-white/10 flex items-center justify-center shrink-0"
                 >
                   <Menu className="w-5 h-5" />
                 </button>
                 {effectiveActiveChannel && (
                   <>
                     {effectiveActiveChannel.type === 'text' ? (
-                      <Hash className="w-5 h-5 text-zinc-400 shrink-0" />
+                      <Hash className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-400 shrink-0" />
                     ) : effectiveActiveChannel.type === 'voice' ? (
-                      <Volume2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                      <Volume2 className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400 shrink-0" />
                     ) : (
-                      <Video className="w-5 h-5 text-blue-400 shrink-0" />
+                      <Video className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400 shrink-0" />
                     )}
                     <div className="min-w-0">
                       <div className="flex items-center gap-2.5">
@@ -924,15 +947,15 @@ function ZonePlatform() {
                 )}
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => setPublicRoomsOpen(true)}
                   title={t.publicRooms}
-                  className="hidden sm:flex px-3 py-1.5 rounded-xl bg-white/[0.04] hover:bg-white/10 border border-white/8 text-xs text-zinc-200 items-center gap-1.5 whitespace-nowrap shrink-0"
+                  className="hidden sm:flex min-h-[38px] px-3 py-1.5 rounded-xl bg-white/[0.04] hover:bg-white/10 border border-white/8 text-xs text-zinc-200 items-center gap-1.5 whitespace-nowrap shrink-0"
                 >
                   <Globe className="w-3.5 h-3.5 text-blue-400" />
-                  {t.publicRooms}
+                  <span className="hidden md:inline">{t.publicRooms}</span>
                 </button>
 
                 {activeServer && effectiveChannels.some((c) => c.type === 'video' || c.type === 'voice') && (
@@ -940,7 +963,8 @@ function ZonePlatform() {
                     <button
                       type="button"
                       onClick={() => handleStartHeaderScreenShare('screen')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                      title={rtc.screenSharing ? t.stopScreenBtn : t.shareScreenBtn}
+                      className={`min-h-[38px] px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
                         rtc.screenSharing
                           ? 'bg-sky-500 text-zinc-950 hover:bg-sky-400'
                           : 'bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/35 text-blue-200'
@@ -948,13 +972,13 @@ function ZonePlatform() {
                     >
                       {rtc.screenSharing ? (
                         <>
-                          <MonitorOff className="w-3.5 h-3.5" />
-                          {t.stopScreenBtn}
+                          <MonitorOff className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+                          <span className="hidden sm:inline">{t.stopScreenBtn}</span>
                         </>
                       ) : (
                         <>
-                          <MonitorUp className="w-3.5 h-3.5" />
-                          {t.shareScreenBtn}
+                          <MonitorUp className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+                          <span className="hidden sm:inline">{t.shareScreenBtn}</span>
                         </>
                       )}
                     </button>
@@ -963,10 +987,11 @@ function ZonePlatform() {
                       <button
                         type="button"
                         onClick={() => handleStartHeaderScreenShare('game')}
-                        className="hidden md:flex px-3 py-1.5 rounded-xl text-xs font-semibold items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 bg-violet-500/20 hover:bg-violet-500/30 border border-violet-400/35 text-violet-200"
+                        title={t.shareGameBtn}
+                        className="hidden md:flex min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 bg-violet-500/20 hover:bg-violet-500/30 border border-violet-400/35 text-violet-200"
                       >
                         <Gamepad2 className="w-3.5 h-3.5" />
-                        {t.shareGameBtn}
+                        <span>{t.shareGameBtn}</span>
                       </button>
                     )}
                   </>
@@ -976,18 +1001,20 @@ function ZonePlatform() {
                   type="button"
                   onClick={() => setNotificationsOpen(true)}
                   title={t.notifications}
-                  className="relative p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/8"
+                  aria-label={t.notifications}
+                  className="relative min-h-[40px] min-w-[40px] rounded-xl text-zinc-400 hover:text-white hover:bg-white/8 flex items-center justify-center"
                 >
                   <Bell className="w-4 h-4" />
                   {unreadNotifications > 0 && (
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500" />
+                    <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-rose-500" />
                   )}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowMembersDrawer((v) => !v)}
                   title={t.membersTitle}
-                  className={`p-2 rounded-xl transition-colors ${
+                  aria-label={t.membersTitle}
+                  className={`min-h-[40px] min-w-[40px] rounded-xl transition-colors flex items-center justify-center ${
                     showMembersDrawer
                       ? 'bg-white/10 text-white'
                       : 'text-zinc-400 hover:text-white hover:bg-white/8'
@@ -1220,17 +1247,37 @@ function ZonePlatform() {
             )}
           </main>
 
-          {/* Right Members Sidebar */}
+          {/* Right Members Sidebar (inline on lg+, slide-over drawer on mobile & tablet) */}
           {showMembersDrawer && activeServer && (
-            <div className="hidden md:flex h-full shrink-0">
-              <MembersSidebar
-                currentUserUid={activeUid || undefined}
-                members={effectiveMembers}
-                usersByUid={effectiveUsersByUid}
-                livePresences={livePresences}
-                onSelectMember={(user, role) => setSelectedProfile({ user, role })}
-              />
-            </div>
+            <>
+              <div
+                onClick={() => setShowMembersDrawer(false)}
+                className="fixed inset-0 z-40 bg-black/65 backdrop-blur-sm flex justify-end lg:hidden"
+              >
+                <div onClick={(e) => e.stopPropagation()} className="h-full">
+                  <MembersSidebar
+                    currentUserUid={activeUid || undefined}
+                    members={effectiveMembers}
+                    usersByUid={effectiveUsersByUid}
+                    livePresences={livePresences}
+                    onSelectMember={(user, role) => {
+                      setShowMembersDrawer(false);
+                      setSelectedProfile({ user, role });
+                    }}
+                    onClose={() => setShowMembersDrawer(false)}
+                  />
+                </div>
+              </div>
+              <div className="hidden lg:flex h-full shrink-0">
+                <MembersSidebar
+                  currentUserUid={activeUid || undefined}
+                  members={effectiveMembers}
+                  usersByUid={effectiveUsersByUid}
+                  livePresences={livePresences}
+                  onSelectMember={(user, role) => setSelectedProfile({ user, role })}
+                />
+              </div>
+            </>
           )}
         </div>
       )}

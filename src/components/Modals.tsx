@@ -47,13 +47,13 @@ const ModalFrame: React.FC<{
 }> = ({ title, subtitle, onClose, children }) => (
   <div
     onClick={onClose}
-    className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+    className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
   >
     <div
       onClick={(e) => e.stopPropagation()}
       className="w-full max-w-lg rounded-2xl border border-white/12 glass-elevated shadow-2xl overflow-hidden"
     >
-      <div className="px-6 py-4 border-b border-white/8 flex items-center justify-between gap-4">
+      <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-white/8 flex items-center justify-between gap-3 sm:gap-4">
         <div className="min-w-0">
           <h3 className="font-display text-base font-semibold text-white truncate">{title}</h3>
           {subtitle && <p className="text-xs text-zinc-400 mt-0.5 truncate">{subtitle}</p>}
@@ -61,12 +61,12 @@ const ModalFrame: React.FC<{
         <button
           type="button"
           onClick={onClose}
-          className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 shrink-0"
+          className="min-h-[40px] min-w-[40px] rounded-xl text-zinc-400 hover:text-white hover:bg-white/10 shrink-0 flex items-center justify-center"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
-      <div className="p-6 max-h-[80vh] overflow-y-auto">{children}</div>
+      <div className="p-4 sm:p-6 max-h-[82dvh] overflow-y-auto">{children}</div>
     </div>
   </div>
 );
@@ -261,28 +261,28 @@ export const UserSettingsModal: React.FC<{
           {t.readPrivacyPolicy}
         </button>
 
-        <div className="pt-2 flex items-center justify-between gap-3 border-t border-white/8">
+        <div className="pt-3 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 border-t border-white/8">
           <button
             type="button"
             onClick={onLogout}
-            className="px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center gap-1.5"
+            className="min-h-[42px] px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center justify-center gap-1.5"
           >
             <LogOut className="w-3.5 h-3.5" />
             {t.exitSessionBtn}
           </button>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-end gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-zinc-300"
+              className="min-h-[42px] px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-zinc-300"
             >
               {t.cancelAction}
             </button>
             <button
               type="submit"
               disabled={busy}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold"
+              className="min-h-[42px] px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold"
             >
               {busy ? t.saving : t.saveChangesBtn}
             </button>
@@ -524,7 +524,7 @@ export const CreateServerModal: React.FC<{
 
         <div>
           <label className="block text-xs font-medium text-zinc-400 mb-2">{t.visibilityLabel}</label>
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <button
               type="button"
               onClick={() => setVisibility('public')}
@@ -748,7 +748,7 @@ export const PublicRoomsModal: React.FC<{
               return (
                 <div
                   key={room.id}
-                  className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/8 hover:border-white/15 transition-colors"
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 p-3.5 sm:p-4 rounded-2xl bg-white/[0.03] border border-white/8 hover:border-white/15 transition-colors"
                 >
                   <div className="flex items-center gap-3.5 min-w-0">
                     <div
@@ -760,7 +760,7 @@ export const PublicRoomsModal: React.FC<{
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-white truncate">{room.name}</span>
-                        <span className="text-[11px] font-mono text-zinc-500">{room.inviteCode}</span>
+                        <span className="text-[11px] font-mono text-zinc-500 shrink-0">{room.inviteCode}</span>
                       </div>
                       {room.description && (
                         <p className="text-xs text-zinc-400 truncate mt-0.5">{room.description}</p>
@@ -782,7 +782,7 @@ export const PublicRoomsModal: React.FC<{
                       }
                       onClose();
                     }}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-semibold shrink-0 whitespace-nowrap transition-colors ${
+                    className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold shrink-0 whitespace-nowrap transition-colors w-full sm:w-auto text-center ${
                       isMember
                         ? 'bg-white/8 hover:bg-white/15 text-zinc-200'
                         : 'bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white'
@@ -844,15 +844,15 @@ export const ServerSettingsModal: React.FC<{
   return (
     <ModalFrame title={t.roomSettingsTitle} onClose={onClose}>
       <div className="space-y-5">
-        <div className="rounded-xl bg-white/[0.03] border border-white/8 p-4 space-y-3">
-          <div className="flex items-center justify-between gap-3">
+        <div className="rounded-xl bg-white/[0.03] border border-white/8 p-3.5 sm:p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <div className="text-xs text-zinc-400">{t.inviteCodeLabel}</div>
               <div className="font-mono text-base font-semibold text-white mt-0.5">
                 {server.inviteCode}
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => {
@@ -860,7 +860,7 @@ export const ServerSettingsModal: React.FC<{
                   setCopiedCode(true);
                   setTimeout(() => setCopiedCode(false), 2000);
                 }}
-                className="px-3 py-2 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-zinc-200 text-xs font-medium flex items-center gap-1.5"
+                className="min-h-[40px] px-3 py-2 rounded-xl bg-white/8 hover:bg-white/14 border border-white/10 text-zinc-200 text-xs font-medium flex items-center gap-1.5"
               >
                 {copiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                 {t.copyInviteCode}
@@ -872,7 +872,7 @@ export const ServerSettingsModal: React.FC<{
                   setCopiedLink(true);
                   setTimeout(() => setCopiedLink(false), 2000);
                 }}
-                className="px-3 py-2 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/30 text-blue-200 text-xs font-medium flex items-center gap-1.5"
+                className="min-h-[40px] px-3 py-2 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/30 text-blue-200 text-xs font-medium flex items-center gap-1.5"
               >
                 {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Link2 className="w-3.5 h-3.5" />}
                 {t.copyInviteLink}
@@ -934,7 +934,7 @@ export const ServerSettingsModal: React.FC<{
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-zinc-400 mb-1">{t.visibilityLabel}</label>
               <select
@@ -1001,7 +1001,7 @@ export const ServerSettingsModal: React.FC<{
             </div>
           )}
 
-          <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/8">
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-2.5 pt-3 border-t border-white/8">
             {isOwner && server.ownerId !== 'system' && onCloseRoom ? (
               <button
                 type="button"
@@ -1009,27 +1009,27 @@ export const ServerSettingsModal: React.FC<{
                   await onCloseRoom();
                   onClose();
                 }}
-                className="px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center gap-1.5"
+                className="min-h-[42px] px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center justify-center gap-1.5"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 {t.closeRoom}
               </button>
             ) : (
-              <span />
+              <span className="hidden sm:inline" />
             )}
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-xl bg-white/5 text-xs text-zinc-300"
+                className="min-h-[42px] px-4 py-2 rounded-xl bg-white/5 text-xs text-zinc-300"
               >
                 {t.closeBtn}
               </button>
               <button
                 type="submit"
                 disabled={busy}
-                className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold"
+                className="min-h-[42px] px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold"
               >
                 {t.saveAction}
               </button>
@@ -1127,7 +1127,7 @@ export const ChannelModal: React.FC<{
       >
         <div>
           <label className="block text-xs font-medium text-zinc-400 mb-2">{t.channelTypeLabel}</label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {(
               [
                 { id: 'text', label: t.channelTypeText, icon: Hash },
@@ -1141,14 +1141,14 @@ export const ChannelModal: React.FC<{
                   key={opt.id}
                   type="button"
                   onClick={() => setType(opt.id)}
-                  className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-medium transition-colors ${
+                  className={`min-h-[42px] flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-medium transition-colors ${
                     type === opt.id
                       ? 'bg-blue-500/20 border-blue-400/50 text-white'
                       : 'bg-white/[0.03] border-white/8 text-zinc-400 hover:text-white'
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
-                  {opt.label}
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{opt.label}</span>
                 </button>
               );
             })}
