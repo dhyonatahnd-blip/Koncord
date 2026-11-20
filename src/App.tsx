@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Bell,
   ExternalLink,
+  Gamepad2,
   Globe,
   Hash,
   Menu,
@@ -566,7 +567,7 @@ function ZonePlatform() {
     });
   };
 
-  const handleStartHeaderScreenShare = () => {
+  const handleStartHeaderScreenShare = (mode: 'screen' | 'game' = 'screen') => {
     if (rtc.screenSharing) {
       rtc.stopScreenShare();
       return;
@@ -580,12 +581,15 @@ function ZonePlatform() {
     if (!targetRoomChannel) return;
 
     withMediaConsent(async () => {
-      const started = await rtc.startScreenShare({
-        serverId: targetRoomChannel.serverId,
-        channelId: targetRoomChannel.id,
-        channelName: targetRoomChannel.name,
-        channelType: targetRoomChannel.type as 'voice' | 'video',
-      });
+      const started = await rtc.startScreenShare(
+        {
+          serverId: targetRoomChannel.serverId,
+          channelId: targetRoomChannel.id,
+          channelName: targetRoomChannel.name,
+          channelType: targetRoomChannel.type as 'voice' | 'video',
+        },
+        mode
+      );
       if (started) {
         setActiveChannelId(targetRoomChannel.id);
       }
@@ -932,27 +936,40 @@ function ZonePlatform() {
                 </button>
 
                 {activeServer && effectiveChannels.some((c) => c.type === 'video' || c.type === 'voice') && (
-                  <button
-                    type="button"
-                    onClick={handleStartHeaderScreenShare}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                      rtc.screenSharing
-                        ? 'bg-sky-500 text-zinc-950 hover:bg-sky-400'
-                        : 'bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/35 text-blue-200'
-                    }`}
-                  >
-                    {rtc.screenSharing ? (
-                      <>
-                        <MonitorOff className="w-3.5 h-3.5" />
-                        {t.stopScreenBtn}
-                      </>
-                    ) : (
-                      <>
-                        <MonitorUp className="w-3.5 h-3.5" />
-                        {t.shareScreenBtn}
-                      </>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleStartHeaderScreenShare('screen')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                        rtc.screenSharing
+                          ? 'bg-sky-500 text-zinc-950 hover:bg-sky-400'
+                          : 'bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/35 text-blue-200'
+                      }`}
+                    >
+                      {rtc.screenSharing ? (
+                        <>
+                          <MonitorOff className="w-3.5 h-3.5" />
+                          {t.stopScreenBtn}
+                        </>
+                      ) : (
+                        <>
+                          <MonitorUp className="w-3.5 h-3.5" />
+                          {t.shareScreenBtn}
+                        </>
+                      )}
+                    </button>
+
+                    {!rtc.screenSharing && (
+                      <button
+                        type="button"
+                        onClick={() => handleStartHeaderScreenShare('game')}
+                        className="hidden md:flex px-3 py-1.5 rounded-xl text-xs font-semibold items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 bg-violet-500/20 hover:bg-violet-500/30 border border-violet-400/35 text-violet-200"
+                      >
+                        <Gamepad2 className="w-3.5 h-3.5" />
+                        {t.shareGameBtn}
+                      </button>
                     )}
-                  </button>
+                  </>
                 )}
 
                 <button
@@ -1141,10 +1158,14 @@ function ZonePlatform() {
                 rosterPeers={voiceRoster[effectiveActiveChannel.id] || []}
                 remoteMedia={rtc.remoteMedia}
                 peerVolumes={rtc.peerVolumes}
+                screenVolumes={rtc.screenVolumes}
+                screenMutedUids={rtc.screenMutedUids}
                 speakingUids={rtc.speakingUids}
                 micMuted={rtc.micMuted}
                 camEnabled={rtc.camEnabled}
                 screenSharing={rtc.screenSharing}
+                screenShareMode={rtc.screenShareMode}
+                screenAudioMuted={rtc.screenAudioMuted}
                 screenHasSystemAudio={rtc.screenHasSystemAudio}
                 mediaError={rtc.mediaError}
                 screenShareBlockedByIframe={rtc.screenShareBlockedByIframe}
@@ -1163,9 +1184,37 @@ function ZonePlatform() {
                 onLeave={rtc.leaveRoom}
                 onToggleMic={rtc.toggleMic}
                 onToggleCam={rtc.toggleCamera}
-                onStartScreenShare={() => withMediaConsent(() => rtc.startScreenShare())}
+                onStartScreenShare={() =>
+                  withMediaConsent(() =>
+                    rtc.startScreenShare(
+                      {
+                        serverId: effectiveActiveChannel.serverId,
+                        channelId: effectiveActiveChannel.id,
+                        channelName: effectiveActiveChannel.name,
+                        channelType: effectiveActiveChannel.type as 'voice' | 'video',
+                      },
+                      'screen'
+                    )
+                  )
+                }
+                onStartGameShare={() =>
+                  withMediaConsent(() =>
+                    rtc.startScreenShare(
+                      {
+                        serverId: effectiveActiveChannel.serverId,
+                        channelId: effectiveActiveChannel.id,
+                        channelName: effectiveActiveChannel.name,
+                        channelType: effectiveActiveChannel.type as 'voice' | 'video',
+                      },
+                      'game'
+                    )
+                  )
+                }
                 onStopScreenShare={rtc.stopScreenShare}
+                onToggleScreenAudioMute={rtc.toggleScreenAudioMute}
                 onSetPeerVolume={rtc.setVolumeForPeer}
+                onSetScreenVolume={rtc.setScreenVolumeForPeer}
+                onToggleScreenMute={rtc.toggleScreenMuteForPeer}
                 onClearError={rtc.clearMediaError}
               />
             )}

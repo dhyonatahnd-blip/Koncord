@@ -28,10 +28,13 @@ interface PeerConnectionBundle {
   screenStreamId: string | null;
 }
 
+export type ScreenShareMode = 'screen' | 'game';
+
 export interface RemoteMediaStreams {
   camStream: MediaStream | null;
   screenStream: MediaStream | null;
   audioStream: MediaStream | null;
+  screenAudioStream: MediaStream | null;
 }
 
 export function useWebRTC(params: {
@@ -54,18 +57,23 @@ export function useWebRTC(params: {
   const [peers, setPeers] = useState<Record<string, VoicePeer>>({});
   const [remoteMedia, setRemoteMedia] = useState<Record<string, RemoteMediaStreams>>({});
   const [peerVolumes, setPeerVolumes] = useState<Record<string, number>>({});
+  const [screenVolumes, setScreenVolumes] = useState<Record<string, number>>({});
+  const [screenMutedUids, setScreenMutedUids] = useState<Record<string, boolean>>({});
   const [speakingUids, setSpeakingUids] = useState<Record<string, boolean>>({});
   const [livekitActive, setLivekitActive] = useState(false);
 
   const [micMuted, setMicMuted] = useState(false);
   const [camEnabled, setCamEnabled] = useState(false);
   const [screenSharing, setScreenSharing] = useState(false);
+  const [screenShareMode, setScreenShareMode] = useState<ScreenShareMode>('screen');
+  const [screenAudioMuted, setScreenAudioMuted] = useState(false);
   const [screenHasSystemAudio, setScreenHasSystemAudio] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [screenShareBlockedByIframe, setScreenShareBlockedByIframe] = useState(false);
 
   const [localCamStream, setLocalCamStream] = useState<MediaStream | null>(null);
   const [localScreenStream, setLocalScreenStream] = useState<MediaStream | null>(null);
+  const screenShareModeRef = useRef<ScreenShareMode>('screen');
 
   const micStreamRef = useRef<MediaStream | null>(null);
   const camStreamRef = useRef<MediaStream | null>(null);
@@ -216,15 +224,55 @@ export function useWebRTC(params: {
         const incomingStream = event.streams[0] || new MediaStream([event.track]);
 
         if (event.track.kind === 'audio') {
-          monitorAudioLevel(targetUid, incomingStream);
-          setRemoteMedia((prev) => ({
-            ...prev,
-            [targetUid]: {
-              camStream: prev[targetUid]?.camStream || null,
-              screenStream: prev[targetUid]?.screenStream || null,
-              audioStream: incomingStream,
-            },
-          }));
+          const hasScreenVideoSibling = incomingStream.getVideoTracks().some((t) => {
+            const lbl = t.label.toLowerCase();
+            return (
+              lbl.includes('screen') ||
+              lbl.includes('window') ||
+              lbl.includes('tab') ||
+              lbl.includes('monitor')
+            );
+          });
+          const isScreenAudio =
+            (Boolean(bundle.screenStreamId) && incomingStream.id === bundle.screenStreamId) ||
+            hasScreenVideoSibling;
+
+          if (isScreenAudio) {
+            setRemoteMedia((prev) => ({
+              ...prev,
+              [targetUid]: {
+                camStream: prev[targetUid]?.camStream || null,
+                screenStream: prev[targetUid]?.screenStream || null,
+                audioStream: prev[targetUid]?.audioStream || null,
+                screenAudioStream: incomingStream,
+              },
+            }));
+            event.track.onended = () => {
+              setRemoteMedia((prev) => {
+                const cur = prev[targetUid];
+                if (!cur) return prev;
+                return {
+                  ...prev,
+                  [targetUid]: {
+                    ...cur,
+                    screenAudioStream:
+                      cur.screenAudioStream?.id === incomingStream.id ? null : cur.screenAudioStream,
+                  },
+                };
+              });
+            };
+          } else {
+            monitorAudioLevel(targetUid, incomingStream);
+            setRemoteMedia((prev) => ({
+              ...prev,
+              [targetUid]: {
+                camStream: prev[targetUid]?.camStream || null,
+                screenStream: prev[targetUid]?.screenStream || null,
+                audioStream: incomingStream,
+                screenAudioStream: prev[targetUid]?.screenAudioStream || null,
+              },
+            }));
+          }
           return;
         }
 
@@ -242,6 +290,10 @@ export function useWebRTC(params: {
               camStream: isScreen ? prev[targetUid]?.camStream || null : incomingStream,
               screenStream: isScreen ? incomingStream : prev[targetUid]?.screenStream || null,
               audioStream: prev[targetUid]?.audioStream || null,
+              screenAudioStream:
+                isScreen && incomingStream.getAudioTracks().length > 0
+                  ? incomingStream
+                  : prev[targetUid]?.screenAudioStream || null,
             },
           }));
 
@@ -254,6 +306,8 @@ export function useWebRTC(params: {
                 [targetUid]: {
                   ...cur,
                   screenStream: cur.screenStream?.id === incomingStream.id ? null : cur.screenStream,
+                  screenAudioStream:
+                    cur.screenAudioStream?.id === incomingStream.id ? null : cur.screenAudioStream,
                   camStream: cur.camStream?.id === incomingStream.id ? null : cur.camStream,
                 },
               };
@@ -273,13 +327,33 @@ export function useWebRTC(params: {
     [monitorAudioLevel, sendSignal]
   );
 
+  const applyScreenGameSenderParams = useCallback((pc: RTCPeerConnection, mode: ScreenShareMode) => {
+    const screenVideoIds = new Set(screenStreamRef.current?.getVideoTracks().map((t) => t.id) || []);
+    if (screenVideoIds.size === 0) return;
+    for (const sender of pc.getSenders()) {
+      if (!sender.track || !screenVideoIds.has(sender.track.id)) continue;
+      try {
+        const params = sender.getParameters();
+        params.degradationPreference = mode === 'game' ? 'maintain-framerate' : 'balanced';
+        if (params.encodings && params.encodings.length > 0 && mode === 'game') {
+          params.encodings[0].maxBitrate = 4_000_000;
+          params.encodings[0].maxFramerate = 60;
+        }
+        sender.setParameters(params).catch(() => {});
+      } catch {
+        // Not all browsers expose mutable RTCRtpSender parameters
+      }
+    }
+  }, []);
+
   const renegotiateAllPeers = useCallback(async () => {
     const room = activeRoomRef.current;
     if (!room || livekitRoomRef.current) return;
     for (const [targetUid, bundle] of peerBundlesRef.current) {
       await sendOfferToPeer(targetUid, bundle, room.channelId);
+      applyScreenGameSenderParams(bundle.pc, screenShareModeRef.current);
     }
-  }, [sendOfferToPeer]);
+  }, [applyScreenGameSenderParams, sendOfferToPeer]);
 
   // Listen to WebRTC signaling messages from WebSocket (Mesh mode when LiveKit is off)
   useEffect(() => {
@@ -349,7 +423,10 @@ export function useWebRTC(params: {
           setRemoteMedia((prev) => {
             const cur = prev[targetUid];
             if (!cur) return prev;
-            return { ...prev, [targetUid]: { ...cur, screenStream: null } };
+            return {
+              ...prev,
+              [targetUid]: { ...cur, screenStream: null, screenAudioStream: null },
+            };
           });
         }
       } else if (!livekitRoomRef.current && type === 'rtc:offer' && msg.channelId === room.channelId) {
@@ -453,6 +530,9 @@ export function useWebRTC(params: {
     setLocalCamStream(null);
     setLocalScreenStream(null);
     setScreenSharing(false);
+    setScreenShareMode('screen');
+    screenShareModeRef.current = 'screen';
+    setScreenAudioMuted(false);
     setScreenHasSystemAudio(false);
     setCamEnabled(false);
     setMicMuted(false);
@@ -489,12 +569,14 @@ export function useWebRTC(params: {
             if (!targetUid || targetUid === uid) return;
             const stream = new MediaStream([track.mediaStreamTrack]);
             if (track.kind === Track.Kind.Audio) {
+              const isScreenAudio = publication.source === Track.Source.ScreenShareAudio;
               setRemoteMedia((prev) => ({
                 ...prev,
                 [targetUid]: {
                   camStream: prev[targetUid]?.camStream || null,
                   screenStream: prev[targetUid]?.screenStream || null,
-                  audioStream: stream,
+                  audioStream: isScreenAudio ? prev[targetUid]?.audioStream || null : stream,
+                  screenAudioStream: isScreenAudio ? stream : prev[targetUid]?.screenAudioStream || null,
                 },
               }));
             } else if (track.kind === Track.Kind.Video) {
@@ -505,6 +587,7 @@ export function useWebRTC(params: {
                   camStream: isScreen ? prev[targetUid]?.camStream || null : stream,
                   screenStream: isScreen ? stream : prev[targetUid]?.screenStream || null,
                   audioStream: prev[targetUid]?.audioStream || null,
+                  screenAudioStream: prev[targetUid]?.screenAudioStream || null,
                 },
               }));
             }
@@ -520,12 +603,15 @@ export function useWebRTC(params: {
               const cur = prev[targetUid];
               if (!cur) return prev;
               const isScreen = publication.source === Track.Source.ScreenShare;
+              const isScreenAudio = publication.source === Track.Source.ScreenShareAudio;
               return {
                 ...prev,
                 [targetUid]: {
                   camStream: track.kind === Track.Kind.Video && !isScreen ? null : cur.camStream,
                   screenStream: track.kind === Track.Kind.Video && isScreen ? null : cur.screenStream,
-                  audioStream: track.kind === Track.Kind.Audio ? null : cur.audioStream,
+                  audioStream: track.kind === Track.Kind.Audio && !isScreenAudio ? null : cur.audioStream,
+                  screenAudioStream:
+                    track.kind === Track.Kind.Audio && isScreenAudio ? null : cur.screenAudioStream,
                 },
               };
             });
@@ -768,6 +854,9 @@ export function useWebRTC(params: {
     screenStreamRef.current = null;
     setLocalScreenStream(null);
     setScreenSharing(false);
+    setScreenShareMode('screen');
+    screenShareModeRef.current = 'screen';
+    setScreenAudioMuted(false);
     setScreenHasSystemAudio(false);
 
     if (activeRoomRef.current) {
@@ -777,12 +866,15 @@ export function useWebRTC(params: {
   }, [renegotiateAllPeers, sendSignal]);
 
   const startScreenShare = useCallback(
-    async (autoJoinRoom?: {
-      serverId: string;
-      channelId: string;
-      channelName: string;
-      channelType: 'voice' | 'video';
-    }) => {
+    async (
+      autoJoinRoom?: {
+        serverId: string;
+        channelId: string;
+        channelName: string;
+        channelType: 'voice' | 'video';
+      },
+      mode: ScreenShareMode = 'screen'
+    ) => {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
         setMediaError('getDisplayMedia API unavailable in this browser.');
         return false;
@@ -792,15 +884,35 @@ export function useWebRTC(params: {
       setScreenShareBlockedByIframe(false);
 
       let displayStream: MediaStream | null = null;
+      const preferredVideo: MediaTrackConstraints =
+        mode === 'game'
+          ? {
+              frameRate: { ideal: 60, max: 60 },
+              width: { ideal: 1920, max: 2560 },
+              height: { ideal: 1080, max: 1440 },
+            }
+          : {
+              frameRate: { ideal: 60, max: 60 },
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+            };
+
+      const preferredAudio: MediaTrackConstraints | boolean = {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      };
+
+      const rawOptions: DisplayMediaStreamOptions & Record<string, unknown> = {
+        video: preferredVideo,
+        audio: preferredAudio,
+        surfaceSwitching: 'include',
+        selfBrowserSurface: 'exclude',
+        systemAudio: 'include',
+      };
+
       try {
-        displayStream = await navigator.mediaDevices.getDisplayMedia({
-          video: {
-            frameRate: { ideal: 60, max: 60 },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-          audio: true,
-        });
+        displayStream = await navigator.mediaDevices.getDisplayMedia(rawOptions);
       } catch (firstErr) {
         const firstName = firstErr instanceof DOMException ? firstErr.name : '';
         const firstMsg = firstErr instanceof Error ? firstErr.message.toLowerCase() : '';
@@ -812,14 +924,21 @@ export function useWebRTC(params: {
         ) {
           try {
             displayStream = await navigator.mediaDevices.getDisplayMedia({
-              video: true,
-              audio: false,
+              video: { frameRate: { ideal: 60, max: 60 } },
+              audio: true,
             });
-          } catch (retryErr) {
-            const retryName = retryErr instanceof DOMException ? retryErr.name : '';
-            if (retryName === 'AbortError') return false;
-            setMediaError('Could not start screen sharing.');
-            return false;
+          } catch {
+            try {
+              displayStream = await navigator.mediaDevices.getDisplayMedia({
+                video: true,
+                audio: false,
+              });
+            } catch (retryErr) {
+              const retryName = retryErr instanceof DOMException ? retryErr.name : '';
+              if (retryName === 'AbortError') return false;
+              setMediaError('Could not start screen sharing.');
+              return false;
+            }
           }
         } else if (firstName === 'AbortError') {
           return false;
@@ -830,7 +949,12 @@ export function useWebRTC(params: {
           firstMsg.includes('disallowed')
         ) {
           const inIframe = window.self !== window.top;
-          if (inIframe && (firstMsg.includes('permissions') || firstMsg.includes('policy') || firstMsg.includes('disallowed'))) {
+          if (
+            inIframe &&
+            (firstMsg.includes('permissions') ||
+              firstMsg.includes('policy') ||
+              firstMsg.includes('disallowed'))
+          ) {
             setScreenShareBlockedByIframe(true);
             setMediaError('Screen capture blocked in embedded view. Open in a new tab.');
           } else {
@@ -854,12 +978,15 @@ export function useWebRTC(params: {
       const hasAudio = displayStream.getAudioTracks().length > 0;
 
       if (videoTrack) {
-        videoTrack.contentHint = 'detail';
+        videoTrack.contentHint = mode === 'game' ? 'motion' : 'detail';
         videoTrack.onended = () => {
           stopScreenShare();
         };
       }
 
+      screenShareModeRef.current = mode;
+      setScreenShareMode(mode);
+      setScreenAudioMuted(false);
       screenStreamRef.current = displayStream;
       setLocalScreenStream(displayStream);
       setScreenSharing(true);
@@ -892,10 +1019,40 @@ export function useWebRTC(params: {
     [joinRoom, renegotiateAllPeers, sendSignal, stopScreenShare]
   );
 
+  const toggleScreenAudioMute = useCallback(() => {
+    const stream = screenStreamRef.current;
+    if (!stream) return;
+    const tracks = stream.getAudioTracks();
+    if (tracks.length === 0) return;
+    const nextMuted = !screenAudioMuted;
+    tracks.forEach((track) => {
+      track.enabled = !nextMuted;
+    });
+    setScreenAudioMuted(nextMuted);
+  }, [screenAudioMuted]);
+
   const setVolumeForPeer = useCallback((targetUid: string, volume: number) => {
     setPeerVolumes((prev) => ({
       ...prev,
       [targetUid]: Math.max(0, Math.min(2, volume)),
+    }));
+  }, []);
+
+  const setScreenVolumeForPeer = useCallback((targetUid: string, volume: number) => {
+    const clamped = Math.max(0, Math.min(2, volume));
+    setScreenVolumes((prev) => ({
+      ...prev,
+      [targetUid]: clamped,
+    }));
+    if (clamped > 0) {
+      setScreenMutedUids((prev) => (prev[targetUid] ? { ...prev, [targetUid]: false } : prev));
+    }
+  }, []);
+
+  const toggleScreenMuteForPeer = useCallback((targetUid: string) => {
+    setScreenMutedUids((prev) => ({
+      ...prev,
+      [targetUid]: !prev[targetUid],
     }));
   }, []);
 
@@ -925,10 +1082,14 @@ export function useWebRTC(params: {
       peers,
       remoteMedia,
       peerVolumes,
+      screenVolumes,
+      screenMutedUids,
       speakingUids,
       micMuted,
       camEnabled,
       screenSharing,
+      screenShareMode,
+      screenAudioMuted,
       screenHasSystemAudio,
       mediaError,
       screenShareBlockedByIframe,
@@ -940,7 +1101,10 @@ export function useWebRTC(params: {
       toggleCamera,
       startScreenShare,
       stopScreenShare,
+      toggleScreenAudioMute,
       setVolumeForPeer,
+      setScreenVolumeForPeer,
+      toggleScreenMuteForPeer,
       clearMediaError,
     }),
     [
@@ -949,10 +1113,14 @@ export function useWebRTC(params: {
       peers,
       remoteMedia,
       peerVolumes,
+      screenVolumes,
+      screenMutedUids,
       speakingUids,
       micMuted,
       camEnabled,
       screenSharing,
+      screenShareMode,
+      screenAudioMuted,
       screenHasSystemAudio,
       mediaError,
       screenShareBlockedByIframe,
@@ -964,7 +1132,10 @@ export function useWebRTC(params: {
       toggleCamera,
       startScreenShare,
       stopScreenShare,
+      toggleScreenAudioMute,
       setVolumeForPeer,
+      setScreenVolumeForPeer,
+      toggleScreenMuteForPeer,
       clearMediaError,
     ]
   );

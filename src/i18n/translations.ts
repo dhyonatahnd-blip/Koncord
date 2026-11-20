@@ -99,6 +99,16 @@ export interface TranslationStrings {
   // Voice, Video & Screen Share
   shareScreenBtn: string;
   stopScreenBtn: string;
+  shareGameBtn: string;
+  joinAndShareGameBtn: string;
+  gameModeBadge: string;
+  screenVolumeLabel: string;
+  muteStreamBtn: string;
+  unmuteStreamBtn: string;
+  muteOutgoingScreenAudio: string;
+  unmuteOutgoingScreenAudio: string;
+  noSystemAudioBadge: string;
+  screenAudioMutedBadge: string;
   voiceRoomTitle: string;
   videoRoomTitle: string;
   joinRoomBtn: string;
@@ -350,6 +360,16 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationStrings> = {
 
     shareScreenBtn: 'Compartilhar Tela',
     stopScreenBtn: 'Parar Tela',
+    shareGameBtn: 'Compartilhar Jogo',
+    joinAndShareGameBtn: 'Entrar e Compartilhar Jogo (60 FPS)',
+    gameModeBadge: 'Modo Jogo · 60 FPS',
+    screenVolumeLabel: 'Volume da tela',
+    muteStreamBtn: 'Mutar transmissão',
+    unmuteStreamBtn: 'Ativar som da tela',
+    muteOutgoingScreenAudio: 'Mutar áudio do jogo/tela',
+    unmuteOutgoingScreenAudio: 'Ativar áudio do jogo/tela',
+    noSystemAudioBadge: 'Sem áudio do sistema',
+    screenAudioMutedBadge: 'Áudio da tela mutado',
     voiceRoomTitle: 'Sala de Voz',
     videoRoomTitle: 'Sala de Vídeo & Tela',
     joinRoomBtn: 'Entrar na Sala',
@@ -599,6 +619,16 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationStrings> = {
 
     shareScreenBtn: 'Share Screen',
     stopScreenBtn: 'Stop Screen',
+    shareGameBtn: 'Share Game',
+    joinAndShareGameBtn: 'Join & Share Game (60 FPS)',
+    gameModeBadge: 'Game Mode · 60 FPS',
+    screenVolumeLabel: 'Stream volume',
+    muteStreamBtn: 'Mute stream',
+    unmuteStreamBtn: 'Unmute stream',
+    muteOutgoingScreenAudio: 'Mute game/screen audio',
+    unmuteOutgoingScreenAudio: 'Unmute game/screen audio',
+    noSystemAudioBadge: 'No system audio',
+    screenAudioMutedBadge: 'Stream audio muted',
     voiceRoomTitle: 'Voice Channel',
     videoRoomTitle: 'Video & Screen Room',
     joinRoomBtn: 'Join Room',
@@ -848,6 +878,16 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationStrings> = {
 
     shareScreenBtn: 'Показать экран',
     stopScreenBtn: 'Остановить показ',
+    shareGameBtn: 'Транслировать игру',
+    joinAndShareGameBtn: 'Войти и показать игру (60 FPS)',
+    gameModeBadge: 'Игровой режим · 60 FPS',
+    screenVolumeLabel: 'Громкость экрана',
+    muteStreamBtn: 'Заглушить звук экрана',
+    unmuteStreamBtn: 'Включить звук экрана',
+    muteOutgoingScreenAudio: 'Выкл. звук игры/экрана',
+    unmuteOutgoingScreenAudio: 'Вкл. звук игры/экрана',
+    noSystemAudioBadge: 'Без системного звука',
+    screenAudioMutedBadge: 'Звук экрана выкл.',
     voiceRoomTitle: 'Голосовой канал',
     videoRoomTitle: 'Видео и экран',
     joinRoomBtn: 'Войти в комнату',

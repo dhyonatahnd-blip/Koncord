@@ -3,6 +3,7 @@ import {
   Camera,
   CameraOff,
   ExternalLink,
+  Gamepad2,
   Mic,
   MicOff,
   MonitorOff,
@@ -13,7 +14,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { ChannelDoc, UserPublic, VoicePeer } from '../types';
-import { RemoteMediaStreams } from '../hooks/useWebRTC';
+import { RemoteMediaStreams, ScreenShareMode } from '../hooks/useWebRTC';
 import { useI18n } from '../i18n/I18nContext';
 import { Avatar } from './Avatar';
 import { ScreenFeed, ScreenShareStage } from './ScreenShareStage';
@@ -78,10 +79,14 @@ interface VoiceVideoRoomProps {
   rosterPeers: VoicePeer[];
   remoteMedia: Record<string, RemoteMediaStreams>;
   peerVolumes: Record<string, number>;
+  screenVolumes: Record<string, number>;
+  screenMutedUids: Record<string, boolean>;
   speakingUids: Record<string, boolean>;
   micMuted: boolean;
   camEnabled: boolean;
   screenSharing: boolean;
+  screenShareMode: ScreenShareMode;
+  screenAudioMuted: boolean;
   screenHasSystemAudio: boolean;
   mediaError: string | null;
   screenShareBlockedByIframe: boolean;
@@ -92,8 +97,12 @@ interface VoiceVideoRoomProps {
   onToggleMic: () => void;
   onToggleCam: () => void;
   onStartScreenShare: () => void;
+  onStartGameShare: () => void;
   onStopScreenShare: () => void;
+  onToggleScreenAudioMute: () => void;
   onSetPeerVolume: (uid: string, vol: number) => void;
+  onSetScreenVolume: (uid: string, vol: number) => void;
+  onToggleScreenMute: (uid: string) => void;
   onClearError: () => void;
 }
 
@@ -106,10 +115,14 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
   rosterPeers,
   remoteMedia,
   peerVolumes,
+  screenVolumes,
+  screenMutedUids,
   speakingUids,
   micMuted,
   camEnabled,
   screenSharing,
+  screenShareMode,
+  screenAudioMuted,
   screenHasSystemAudio,
   mediaError,
   screenShareBlockedByIframe,
@@ -120,8 +133,12 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
   onToggleMic,
   onToggleCam,
   onStartScreenShare,
+  onStartGameShare,
   onStopScreenShare,
+  onToggleScreenAudioMute,
   onSetPeerVolume,
+  onSetScreenVolume,
+  onToggleScreenMute,
   onClearError,
 }) => {
   const { t } = useI18n();
@@ -134,6 +151,7 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
       stream: localScreenStream,
       isLocal: true,
       hasSystemAudio: screenHasSystemAudio,
+      mode: screenShareMode,
     });
   }
   for (const [peerUid, media] of Object.entries(remoteMedia)) {
@@ -143,6 +161,7 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
         uid: peerUid,
         displayName: peerInfo?.displayName || t.memberRole,
         stream: media.screenStream,
+        audioStream: media.screenAudioStream,
         isLocal: false,
       });
     }
@@ -200,6 +219,14 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
               <MonitorUp className="w-4 h-4 text-sky-400" />
               {t.joinAndShareBtn}
             </button>
+            <button
+              type="button"
+              onClick={onStartGameShare}
+              className="w-full py-2.5 px-5 rounded-xl bg-violet-500/15 hover:bg-violet-500/25 border border-violet-400/30 text-violet-100 text-xs font-medium flex items-center justify-center gap-2 transition-colors"
+            >
+              <Gamepad2 className="w-4 h-4 text-violet-300" />
+              {t.joinAndShareGameBtn}
+            </button>
           </div>
         </div>
       </div>
@@ -244,7 +271,16 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
         )}
 
         {screenFeeds.length > 0 && (
-          <ScreenShareStage feeds={screenFeeds} onStopLocalShare={onStopScreenShare} />
+          <ScreenShareStage
+            feeds={screenFeeds}
+            screenVolumes={screenVolumes}
+            screenMutedUids={screenMutedUids}
+            localScreenAudioMuted={screenAudioMuted}
+            onSetScreenVolume={onSetScreenVolume}
+            onToggleScreenMute={onToggleScreenMute}
+            onToggleLocalScreenAudioMute={onToggleScreenAudioMute}
+            onStopLocalShare={onStopScreenShare}
+          />
         )}
 
         <div
@@ -402,18 +438,51 @@ export const VoiceVideoRoom: React.FC<VoiceVideoRoomProps> = ({
             {camEnabled ? t.camOff : t.camOn}
           </button>
 
-          <button
-            type="button"
-            onClick={screenSharing ? onStopScreenShare : onStartScreenShare}
-            className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap ${
-              screenSharing
-                ? 'bg-sky-500 text-zinc-950 hover:bg-sky-400 shadow-lg shadow-sky-500/20'
-                : 'bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white shadow-lg shadow-blue-500/20'
-            }`}
-          >
-            {screenSharing ? <MonitorOff className="w-4 h-4" /> : <MonitorUp className="w-4 h-4" />}
-            {screenSharing ? t.stopShare : t.shareScreen}
-          </button>
+          {screenSharing ? (
+            <>
+              {screenHasSystemAudio && (
+                <button
+                  type="button"
+                  onClick={onToggleScreenAudioMute}
+                  className={`px-3.5 py-2.5 rounded-xl text-xs font-medium flex items-center gap-2 transition-colors whitespace-nowrap border ${
+                    screenAudioMuted
+                      ? 'bg-rose-500/15 border-rose-500/30 text-rose-300 hover:bg-rose-500/25'
+                      : 'bg-white/8 border-white/10 text-zinc-100 hover:bg-white/14'
+                  }`}
+                >
+                  {screenAudioMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+                  {screenAudioMuted ? t.unmuteOutgoingScreenAudio : t.muteOutgoingScreenAudio}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onStopScreenShare}
+                className="px-4 py-2.5 rounded-xl bg-sky-500 text-zinc-950 hover:bg-sky-400 shadow-lg shadow-sky-500/20 text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap"
+              >
+                <MonitorOff className="w-4 h-4" />
+                {t.stopShare}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={onStartScreenShare}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white shadow-lg shadow-blue-500/20 text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap"
+              >
+                <MonitorUp className="w-4 h-4" />
+                {t.shareScreen}
+              </button>
+              <button
+                type="button"
+                onClick={onStartGameShare}
+                className="px-4 py-2.5 rounded-xl bg-violet-500/20 hover:bg-violet-500/30 border border-violet-400/35 text-violet-100 text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap"
+              >
+                <Gamepad2 className="w-4 h-4 text-violet-300" />
+                {t.shareGameBtn}
+              </button>
+            </>
+          )}
 
           <button
             type="button"
