@@ -24,51 +24,153 @@ export interface ScreenFeed {
   mode?: ScreenShareMode;
 }
 
-const RemoteScreenAudioPlayer: React.FC<{
-  stream: MediaStream | null;
-  volume: number;
-  muted: boolean;
-}> = ({ stream, volume, muted }) => {
+interface RemoteScreenAudioHandle {
+  unlock: () => void;
+}
+
+const RemoteScreenAudioPlayer = React.forwardRef<
+  RemoteScreenAudioHandle,
+  {
+    stream: MediaStream | null;
+    volume: number;
+    muted: boolean;
+    onAutoplayBlockedChange: (blocked: boolean) => void;
+  }
+>(({ stream, volume, muted, onAutoplayBlockedChange }, ref) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
-  const gainRef = useRef<GainNode | null>(null);
+  const boostGainRef = useRef<GainNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const blockedCallbackRef = useRef(onAutoplayBlockedChange);
+  blockedCallbackRef.current = onAutoplayBlockedChange;
 
-  useEffect(() => {
+  const tryPlayAudio = useCallback(() => {
     const el = audioRef.current;
     if (!el || !stream) return;
+    const playPromise = el.play();
+    if (playPromise && typeof playPromise.then === 'function') {
+      playPromise
+        .then(() => {
+          blockedCallbackRef.current(false);
+        })
+        .catch((err) => {
+          const name = err instanceof DOMException ? err.name : '';
+          if (name === 'NotAllowedError') {
+            blockedCallbackRef.current(true);
+          }
+        });
+    }
+  }, [stream]);
+
+  React.useImperativeHandle(
+    ref,
+    () => ({
+      unlock: () => {
+        const el = audioRef.current;
+        if (ctxRef.current && ctxRef.current.state === 'suspended') {
+          ctxRef.current.resume().catch(() => {});
+        }
+        if (el) {
+          el.muted = muted || volume === 0;
+          el.volume = Math.min(1, Math.max(0, volume));
+          el.play()
+            .then(() => blockedCallbackRef.current(false))
+            .catch(() => {});
+        }
+      },
+    }),
+    [muted, volume]
+  );
+
+  // Attach MediaStream natively to <audio> (never mute <audio> during normal playback —
+  // Chromium silences createMediaStreamSource on remote WebRTC tracks if <audio> is muted).
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el || !stream) {
+      blockedCallbackRef.current(false);
+      return;
+    }
 
     if (el.srcObject !== stream) {
       el.srcObject = stream;
     }
 
-    // Disconnect previous Web Audio chain if stream changed
-    if (sourceRef.current) {
-      try {
-        sourceRef.current.disconnect();
-      } catch {
-        // ignore
-      }
-      sourceRef.current = null;
+    const effVol = muted ? 0 : Math.max(0, Math.min(2, volume));
+    el.muted = effVol === 0;
+    el.volume = Math.min(1, effVol);
+
+    if (effVol > 0) {
+      tryPlayAudio();
     }
 
-    if (stream.getAudioTracks().length > 0 && typeof AudioContext !== 'undefined') {
+    const handleAddOrUnmute = () => {
+      if (!muted && volume > 0) {
+        tryPlayAudio();
+      }
+    };
+
+    stream.addEventListener('addtrack', handleAddOrUnmute);
+    for (const track of stream.getAudioTracks()) {
+      track.addEventListener('unmute', handleAddOrUnmute);
+    }
+
+    return () => {
+      stream.removeEventListener('addtrack', handleAddOrUnmute);
+      for (const track of stream.getAudioTracks()) {
+        track.removeEventListener('unmute', handleAddOrUnmute);
+      }
+      if (sourceRef.current) {
+        try {
+          sourceRef.current.disconnect();
+        } catch {
+          // ignore
+        }
+        sourceRef.current = null;
+      }
+      boostGainRef.current = null;
+    };
+  }, [stream, muted, volume, tryPlayAudio]);
+
+  // Apply 0%-100% natively on <audio>, and optional >100%..200% extra boost via Web Audio
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el || !stream) return;
+
+    const effVol = muted ? 0 : Math.max(0, Math.min(2, volume));
+    el.muted = effVol === 0;
+    el.volume = Math.min(1, effVol);
+
+    if (effVol > 0 && el.paused) {
+      tryPlayAudio();
+    }
+
+    const extraBoost = effVol > 1 ? effVol - 1 : 0;
+
+    if (extraBoost > 0 && stream.getAudioTracks().length > 0 && typeof AudioContext !== 'undefined') {
       try {
         const ctx = ctxRef.current || new AudioContext();
         ctxRef.current = ctx;
-        const source = ctx.createMediaStreamSource(stream);
-        const gain = ctx.createGain();
-        source.connect(gain);
-        gain.connect(ctx.destination);
-        sourceRef.current = source;
-        gainRef.current = gain;
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {});
+        }
+        if (!sourceRef.current || !boostGainRef.current) {
+          const source = ctx.createMediaStreamSource(stream);
+          const gain = ctx.createGain();
+          source.connect(gain);
+          gain.connect(ctx.destination);
+          sourceRef.current = source;
+          boostGainRef.current = gain;
+        }
+        boostGainRef.current.gain.value = extraBoost;
       } catch {
-        gainRef.current = null;
+        // Native <audio> at volume=1 continues working as fallback
       }
+    } else if (boostGainRef.current) {
+      boostGainRef.current.gain.value = 0;
     }
+  }, [volume, muted, stream, tryPlayAudio]);
 
-    el.play().catch(() => {});
-
+  useEffect(() => {
     return () => {
       if (sourceRef.current) {
         try {
@@ -78,31 +180,6 @@ const RemoteScreenAudioPlayer: React.FC<{
         }
         sourceRef.current = null;
       }
-    };
-  }, [stream]);
-
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el) return;
-    const effVol = muted ? 0 : Math.max(0, Math.min(2, volume));
-    const ctx = ctxRef.current;
-
-    if (ctx && ctx.state === 'suspended' && effVol > 0) {
-      ctx.resume().catch(() => {});
-    }
-
-    if (ctx && ctx.state === 'running' && gainRef.current) {
-      // Keep <audio muted> so Chrome decodes WebRTC stream while GainNode handles 0%-200%
-      el.muted = true;
-      gainRef.current.gain.value = effVol;
-    } else {
-      el.muted = effVol === 0;
-      el.volume = Math.min(1, effVol);
-    }
-  }, [volume, muted, stream]);
-
-  useEffect(() => {
-    return () => {
       if (ctxRef.current) {
         ctxRef.current.close().catch(() => {});
         ctxRef.current = null;
@@ -112,7 +189,7 @@ const RemoteScreenAudioPlayer: React.FC<{
 
   if (!stream) return null;
   return <audio ref={audioRef} autoPlay playsInline className="hidden" />;
-};
+});
 
 interface ScreenShareStageProps {
   feeds: ScreenFeed[];
@@ -140,9 +217,11 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [controlsHidden, setControlsHidden] = useState(false);
   const [idleHidden, setIdleHidden] = useState(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const audioPlayerRef = useRef<RemoteScreenAudioHandle | null>(null);
   const idleTimerRef = useRef<number | null>(null);
 
   const activeFeed = feeds.find((f) => f.uid === selectedUid) || feeds[0] || null;
@@ -250,7 +329,10 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
     if (activeFeed.isLocal) {
       if (!activeFeed.hasSystemAudio) {
         return (
-          <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-400/20 text-[11px] text-amber-300 whitespace-nowrap">
+          <span
+            title={t.noSystemAudioHint}
+            className="inline-flex items-center px-2.5 py-1.5 rounded-xl bg-amber-500/12 border border-amber-400/25 text-[11px] font-medium text-amber-300 whitespace-nowrap"
+          >
             {t.noSystemAudioBadge}
           </span>
         );
@@ -273,38 +355,68 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
     }
 
     return (
-      <div
-        className={`flex items-center gap-1.5 sm:gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-2 sm:px-2.5 py-1 min-h-[38px] shrink-0 ${
-          compact ? '' : 'backdrop-blur-md'
-        }`}
-      >
-        <button
-          type="button"
-          onClick={() => onToggleScreenMute(activeFeed.uid)}
-          title={activeMuted ? t.unmuteStreamBtn : t.muteStreamBtn}
-          aria-label={activeMuted ? t.unmuteStreamBtn : t.muteStreamBtn}
-          className={`min-h-[32px] min-w-[32px] rounded-lg transition-colors flex items-center justify-center ${
-            activeMuted
-              ? 'text-rose-400 bg-rose-500/15 hover:bg-rose-500/25'
-              : 'text-zinc-200 hover:bg-white/10'
+      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 shrink-0">
+        {autoplayBlocked && activeRemoteAudioStream && (
+          <button
+            type="button"
+            onClick={() => audioPlayerRef.current?.unlock()}
+            className="min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-lg shadow-emerald-500/25 whitespace-nowrap animate-pulse"
+          >
+            <Volume2 className="w-3.5 h-3.5" />
+            <span>{t.enableScreenAudioBtn}</span>
+          </button>
+        )}
+
+        {!activeRemoteAudioStream && (
+          <span
+            title={t.noSystemAudioHint}
+            className="inline-flex items-center px-2.5 py-1.5 rounded-xl bg-zinc-500/15 border border-white/10 text-[11px] text-zinc-400 whitespace-nowrap"
+          >
+            {t.noSystemAudioBadge}
+          </span>
+        )}
+
+        <div
+          className={`flex items-center gap-1.5 sm:gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-2 sm:px-2.5 py-1 min-h-[38px] shrink-0 ${
+            compact ? '' : 'backdrop-blur-md'
           }`}
         >
-          <VolumeIcon className="w-4 h-4" />
-        </button>
-        <input
-          type="range"
-          min={0}
-          max={200}
-          step={5}
-          value={activeVolumePct}
-          onChange={(e) => onSetScreenVolume(activeFeed.uid, Number(e.target.value) / 100)}
-          aria-label={t.screenVolumeLabel}
-          title={`${t.screenVolumeLabel}: ${activeVolumePct}%`}
-          className="w-16 sm:w-24 accent-blue-500 cursor-pointer"
-        />
-        <span className="text-[11px] font-mono tabular-nums text-zinc-300 w-9 text-right">
-          {activeVolumePct}%
-        </span>
+          <button
+            type="button"
+            onClick={() => {
+              onToggleScreenMute(activeFeed.uid);
+              if (activeMuted) {
+                audioPlayerRef.current?.unlock();
+              }
+            }}
+            title={activeMuted ? t.unmuteStreamBtn : t.muteStreamBtn}
+            aria-label={activeMuted ? t.unmuteStreamBtn : t.muteStreamBtn}
+            className={`min-h-[32px] min-w-[32px] rounded-lg transition-colors flex items-center justify-center ${
+              activeMuted
+                ? 'text-rose-400 bg-rose-500/15 hover:bg-rose-500/25'
+                : 'text-zinc-200 hover:bg-white/10'
+            }`}
+          >
+            <VolumeIcon className="w-4 h-4" />
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={200}
+            step={5}
+            value={activeVolumePct}
+            onChange={(e) => {
+              onSetScreenVolume(activeFeed.uid, Number(e.target.value) / 100);
+              audioPlayerRef.current?.unlock();
+            }}
+            aria-label={t.screenVolumeLabel}
+            title={`${t.screenVolumeLabel}: ${activeVolumePct}%`}
+            className="w-16 sm:w-24 accent-blue-500 cursor-pointer"
+          />
+          <span className="text-[11px] font-mono tabular-nums text-zinc-300 w-9 text-right">
+            {activeVolumePct}%
+          </span>
+        </div>
       </div>
     );
   };
@@ -331,9 +443,11 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
       }
     >
       <RemoteScreenAudioPlayer
+        ref={audioPlayerRef}
         stream={activeRemoteAudioStream}
         volume={activeVolume}
         muted={activeMuted}
+        onAutoplayBlockedChange={setAutoplayBlocked}
       />
 
       {/* Top Bar */}
@@ -372,10 +486,14 @@ export const ScreenShareStage: React.FC<ScreenShareStageProps> = ({
               )}
             </div>
             <div className="text-[11px] sm:text-xs text-zinc-400 truncate">
-              {activeFeed.isLocal && activeFeed.hasSystemAudio
-                ? localScreenAudioMuted
-                  ? t.screenAudioMutedBadge
-                  : t.withSystemAudio
+              {activeFeed.isLocal
+                ? activeFeed.hasSystemAudio
+                  ? localScreenAudioMuted
+                    ? t.screenAudioMutedBadge
+                    : t.withSystemAudio
+                  : t.noSystemAudioHint
+                : activeRemoteAudioStream
+                ? `${t.withSystemAudio} · ${t.escHint}`
                 : t.escHint}
             </div>
           </div>

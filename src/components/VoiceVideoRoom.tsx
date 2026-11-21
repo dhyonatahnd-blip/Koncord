@@ -26,16 +26,24 @@ const RemoteAudioPlayer: React.FC<{ stream: MediaStream | null; volume: number }
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    if (audioRef.current && stream) {
-      if (audioRef.current.srcObject !== stream) {
-        audioRef.current.srcObject = stream;
+    const el = audioRef.current;
+    if (el && stream) {
+      if (el.srcObject !== stream) {
+        el.srcObject = stream;
       }
+      el.play().catch(() => {});
     }
   }, [stream]);
 
   useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = Math.max(0, Math.min(1, volume));
+    const el = audioRef.current;
+    if (el) {
+      const clamped = Math.max(0, Math.min(1, volume));
+      el.muted = clamped === 0;
+      el.volume = clamped;
+      if (clamped > 0 && el.paused) {
+        el.play().catch(() => {});
+      }
     }
   }, [volume]);
 

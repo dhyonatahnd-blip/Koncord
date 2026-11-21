@@ -108,7 +108,9 @@ export interface TranslationStrings {
   muteOutgoingScreenAudio: string;
   unmuteOutgoingScreenAudio: string;
   noSystemAudioBadge: string;
+  noSystemAudioHint: string;
   screenAudioMutedBadge: string;
+  enableScreenAudioBtn: string;
   voiceRoomTitle: string;
   videoRoomTitle: string;
   joinRoomBtn: string;
@@ -371,7 +373,9 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationStrings> = {
     muteOutgoingScreenAudio: 'Mutar áudio do jogo/tela',
     unmuteOutgoingScreenAudio: 'Ativar áudio do jogo/tela',
     noSystemAudioBadge: 'Sem áudio do sistema',
+    noSystemAudioHint: 'Sem áudio — compartilhe uma Guia ou marque "Compartilhar áudio"',
     screenAudioMutedBadge: 'Áudio da tela mutado',
+    enableScreenAudioBtn: 'Ativar som da tela',
     voiceRoomTitle: 'Sala de Voz',
     videoRoomTitle: 'Sala de Vídeo & Tela',
     joinRoomBtn: 'Entrar na Sala',
@@ -632,7 +636,9 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationStrings> = {
     muteOutgoingScreenAudio: 'Mute game/screen audio',
     unmuteOutgoingScreenAudio: 'Unmute game/screen audio',
     noSystemAudioBadge: 'No system audio',
+    noSystemAudioHint: 'No audio — share a Tab or check "Share audio"',
     screenAudioMutedBadge: 'Stream audio muted',
+    enableScreenAudioBtn: 'Enable stream audio',
     voiceRoomTitle: 'Voice Channel',
     videoRoomTitle: 'Video & Screen Room',
     joinRoomBtn: 'Join Room',
@@ -893,7 +899,9 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationStrings> = {
     muteOutgoingScreenAudio: 'Выкл. звук игры/экрана',
     unmuteOutgoingScreenAudio: 'Вкл. звук игры/экрана',
     noSystemAudioBadge: 'Без системного звука',
+    noSystemAudioHint: 'Нет звука — выберите Вкладку или включите «Поделиться аудио»',
     screenAudioMutedBadge: 'Звук экрана выкл.',
+    enableScreenAudioBtn: 'Включить звук экрана',
     voiceRoomTitle: 'Голосовой канал',
     videoRoomTitle: 'Видео и экран',
     joinRoomBtn: 'Войти в комнату',
